@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 from app.log import trace, info
 from app.main import bp
 from app.models.user import User
-from app.session import getSessionData, setSessionData, deleteSessionData
+from app.session import getSessionData, setSessionData, deleteSessionData, _mySession
 
 
 @bp.route('/user/logout')
@@ -58,9 +58,9 @@ def login():
         if signed_in:
             setSessionData('user', user.username)
             setSessionData('sign_in', datetime.now(timezone.utc).timestamp())
-            info(f'Valid sign in for {username}')
+            info(f'Valid sign in for {username}', str(_mySession().key))
         else:
-            trace(f'Invalid sign in for user: "{username}"')
+            trace(f'Invalid sign in for user: "{username}"', str(_mySession().key))
             return redirect(url_for('main.login'))
 
     # Redirect a logged in user accordingly

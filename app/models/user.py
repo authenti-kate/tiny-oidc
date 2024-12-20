@@ -44,5 +44,17 @@ class User(db.Model):
     display_name = db.Column(db.String(255))
     groups = db.Column(db.String(255))
 
+    def trace(self):
+        data = {
+            'username': self.username,
+            'password': self.password,
+            'email': self.email,
+            'first_name': self.first_name,
+            'last_name': self.last_name,
+            'display_name': self.display_name,
+            'groups': self.groups
+        }
+        return f'User: {data}'
+
     def __repr__(self):
         return f'<User {self.username}>'
