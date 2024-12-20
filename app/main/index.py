@@ -3,7 +3,7 @@ from app.log import debug
 from datetime import datetime, timezone
 from app.main import bp
 from app.models.user import User
-from app.session import getSessionData
+from app.session import getSessionData, _mySession
 
 @bp.route('/')
 def index():
@@ -53,10 +53,12 @@ def test_page():
 def cron():
     from app.models.session import Session
     rows = Session.query.filter(Session.expires <= datetime.now(timezone.utc)).delete()
-    debug(f'Deleted {rows} rows from Session table')
+    if rows > 0:
+        debug(f'Deleted {rows} rows from Session table')
     from app.models.authorization import Authorization
     rows = Authorization.query.filter(Authorization.session_valid <= datetime.now(timezone.utc)).delete()
-    debug(f'Deleted {rows} rows from Authorization table')
+    if rows > 0:
+        debug(f'Deleted {rows} rows from Authorization table')
     return f"""<!DOCTYPE html>
 <html>
     <head>

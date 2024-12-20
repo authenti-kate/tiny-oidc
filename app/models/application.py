@@ -42,5 +42,15 @@ class Application(db.Model):
     rsa_public_key = db.Column(db.Text)
     acceptable_redirect_uri = db.Column(db.Text, default='*')
 
+    def trace(self):
+        data = {
+            'client_id': self.client_id,
+            'client_secret': self.client_secret,
+            'rsa_private_key': self.rsa_private_key,
+            'rsa_public_key': self.rsa_public_key,
+            'acceptable_redirect_uri': self.acceptable_redirect_uri
+        }
+        return f'Application: {data}'
+
     def __repr__(self):
         return f'<Application {self.client_id}>'
