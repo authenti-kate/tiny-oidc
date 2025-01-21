@@ -12,8 +12,7 @@ from app.models.authorization import Authorization
 @bp.route('/.well-known/openid-configuration')
 def well_known():
     host_url = request.host_url.removesuffix('/')
-    return jsonify(
-        {
+    reply = {
             # Required Fields
             "issuer": host_url + url_for('main.index').removesuffix('/'),
             'authorization_endpoint': host_url + url_for('main.authorization_endpoint'),
@@ -70,7 +69,9 @@ def well_known():
             #     "HS256", "HS384", "HS512", "RS256", "RS384", "RS512", "ES256", "ES384", "ES512"
             #   ],
         }
-    )
+    
+    debug(f"Request: '/.well-known/openid-configuration' Reply: {reply}")
+    return jsonify(reply)
 
 @bp.route('/s2s/token', methods=['POST'])
 def token_endpoint():
@@ -160,18 +161,19 @@ def token_endpoint():
             private_key,
             algorithm="RS256"
         )
-        return jsonify(
-            {
-                "id_token": id_token,
-                "access_token": access_token,
-                "token_type": "Bearer",
-                "expires_in": expires_in_minutes
-            }
-        )
+        reply = {
+            "id_token": id_token,
+            "access_token": access_token,
+            "token_type": "Bearer",
+            "expires_in": expires_in_minutes
+        }
+        debug(f"Request: '/s2s/token' Reply: {reply}")
+        return jsonify(reply)
     return invalid_token_data('Authorization expired')
 
 
 def invalid_token_data(message):
+    debug(f"404: {message}")
     return Response(f"""
 <html>
     <head>
