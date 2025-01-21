@@ -4,6 +4,7 @@ from datetime import datetime, timezone, timedelta
 from flask import jsonify, url_for, request, Response
 from app.log import debug
 from app.main import bp
+from app.extensions import db
 from app.models.user import User
 from app.models.application import Application
 from app.models.authorization import Authorization
@@ -120,15 +121,30 @@ def token_endpoint():
         # Key pair from https://chatgpt.com/share/676128c4-ffdc-8002-85b9-0fdea65978d1
         private_key = application.rsa_private_key
         expires_in_minutes=3600
+
+        authentication = Authentication()
+        authentication.subject = user.username
+        authentication.audience = authorization.application_client_id
+        authentication.not_before = datetime.now(timezone.utc).timestamp()
+        authentication.authentication_time = datetime.now(timezone.utc).timestamp()
+        authentication.expiry_time = (timedelta(minutes=expires_in_minutes) + datetime.now(timezone.utc)).timestamp()
+        authentication.scope = authorization.scope
+        authentication.token_identifier = hashlib.md5(str(f"{authentication.id}.{authentication.subject}.{authentication.authentication_time}").encode('utf-5')).hexdigest()
+        
+        db.session.add(authentication)
+        db.session.commit()
+        debug(authentication.trace())
+
         access_token = jwt.encode(
             {
-                "sub": user.username,
-                "aud": authorization.application_client_id,
+                "sub": authentication.subject,
+                "aud": authentication.audience,
                 "iss": request.host_url.removesuffix('/') + url_for('main.index'),
                 # What time was this application's authentication session started?
-                "iat": datetime.now(timezone.utc).timestamp(),
-                "exp": (timedelta(minutes=expires_in_minutes) + datetime.now(timezone.utc)).timestamp(),
-                "scope": authorization.scope
+                "iat": authentication.authentication_time,
+                "exp": authentication.expiry_time,
+                "scope": authentication.scope,
+                "kid": key_id
             },
             private_key,
             algorithm="RS256"
