@@ -83,7 +83,7 @@ def authorization_endpoint():
         )
         db.session.add(authorization)
         db.session.commit()
-        trace(authorization.trace())
+        debug(authorization.trace())
 
     return redirect(f'{redirect_uri}?code={authorization.code}&state={state}')
 
