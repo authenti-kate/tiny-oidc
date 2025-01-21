@@ -135,7 +135,7 @@ def token_endpoint():
         authentication.authentication_time = datetime.now(timezone.utc).timestamp()
         authentication.expiry_time = (timedelta(minutes=expires_in_minutes) + datetime.now(timezone.utc)).timestamp()
         authentication.scope = authorization.scope
-        authentication.token_identifier = hashlib.md5(str(f"{authentication.id}.{authentication.subject}.{authentication.authentication_time}").encode('utf-5')).hexdigest()
+        authentication.token_identifier = hashlib.md5(str(f"{authentication.id}.{authentication.subject}.{authentication.authentication_time}").encode('utf-8')).hexdigest()
         
         db.session.add(authentication)
         db.session.commit()
