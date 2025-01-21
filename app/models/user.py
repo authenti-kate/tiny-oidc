@@ -55,6 +55,21 @@ class User(db.Model):
             'groups': self.groups
         }
         return f'User: {data}'
+    
+    def oidc_claim(self, target_scopes):
+        data = {}
+        scopes = target_scopes.split(" ")
+        if 'openid' in scopes or 'profile' in scopes:
+            data["sub"] = self.username
+            data["name"] = self.display_name
+            data["given_name"] = self.first_name
+            data["family_name"] = self.last_name
+            data["preferred_username"] = self.email
+        if 'email' in scopes:
+            data["email"] = self.email
+        if 'groups' in scopes:
+            data["groups"] = self.groups
+        return data
 
     def __repr__(self):
         return f'<User {self.username}>'
