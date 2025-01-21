@@ -1,5 +1,4 @@
 import re
-import jwt
 from datetime import datetime, timezone
 from flask import url_for, redirect, request, Response
 from app.log import debug, trace
