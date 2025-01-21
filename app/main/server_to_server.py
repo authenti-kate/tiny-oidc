@@ -75,7 +75,6 @@ def well_known():
 
 @bp.route('/s2s/token', methods=['POST'])
 def token_endpoint():
-    
     invalid_context = []
 
     # Check inbound request contains required fields
@@ -83,12 +82,6 @@ def token_endpoint():
     if not code:
         invalid_context.append('code')
 
-    # state = request.form.get('state', None)
-    # if not state:
-    #     invalid_context.append('state')
-
-    grant_type = request.form.get('grant_type', None)
-    redirect_uri = request.form.get('redirect_uri', None)
     client_id = request.form.get('client_id', None)
     client_secret = request.form.get('client_secret', None)
 
