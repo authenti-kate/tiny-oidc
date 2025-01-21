@@ -120,6 +120,7 @@ def token_endpoint():
         
         # Key pair from https://chatgpt.com/share/676128c4-ffdc-8002-85b9-0fdea65978d1
         private_key = application.rsa_private_key
+        key_id = application.key_id
         expires_in_minutes=3600
 
         authentication = Authentication()
