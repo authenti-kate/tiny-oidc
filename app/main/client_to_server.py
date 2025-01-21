@@ -103,19 +103,8 @@ def invalid_authorize_data(message):
 </html>""", status=400)
 
 
-@bp.route('/unknown/userinfo')
-def userinfo_endpoint():
-    # @TODO: Write this endpoint
-    return 'INCOMPLETE'
-
-
 @bp.route('/unknown/client')
 def client_endpoint():
     # @TODO: Write this endpoint
     return 'INCOMPLETE'
 
-
-@bp.route('/unknown/keys')
-def keys_endpoint():
-    # @TODO: Write this endpoint
-    return 'INCOMPLETE'

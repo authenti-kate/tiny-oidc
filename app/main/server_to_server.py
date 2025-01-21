@@ -1,5 +1,6 @@
-import re
 import jwt
+import base64
+import hashlib
 from datetime import datetime, timezone, timedelta
 from flask import jsonify, url_for, request, Response
 from app.log import debug
@@ -7,8 +8,10 @@ from app.main import bp
 from app.extensions import db
 from app.models.user import User
 from app.models.application import Application
+from app.models.authentication import Authentication
 from app.models.authorization import Authorization
-
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric import rsa
 
 @bp.route('/.well-known/openid-configuration')
 def well_known():
@@ -69,6 +72,8 @@ def well_known():
             #   "request_object_signing_alg_values_supported": [
             #     "HS256", "HS384", "HS512", "RS256", "RS384", "RS512", "ES256", "ES384", "ES512"
             #   ],
+            # Required by oidc-test-client1
+            "introspection_endpoint": host_url + url_for('main.introspection_endpoint')
         }
     
     debug(f"Request: '/.well-known/openid-configuration' Reply: {reply}")
@@ -197,3 +202,77 @@ def invalid_token_data(message):
         <p>{message}</p>
     </body>
 </html>""", status=400)
+
+
+@bp.route('/s2s/keys')
+def keys_endpoint():
+    all_keys = Application.query.all()
+    data = []
+    for key in all_keys:
+        # Load the public key object
+        public_key = serialization.load_pem_public_key(key.rsa_public_key)
+        key_id = key.key_id
+
+        # Ensure it's an RSA public key
+        if isinstance(public_key, rsa.RSAPublicKey):
+            # Get the public numbers
+            public_numbers = public_key.public_numbers()
+            
+            # Derive the modulus (n) and exponent (e)
+            modulus_n = base64.urlsafe_b64encode(public_numbers.n.to_bytes((public_numbers.n.bit_length() + 7) // 8, byteorder="big")).rstrip(b"=").decode("utf-8")
+            exponent_e = base64.urlsafe_b64encode(public_numbers.e.to_bytes((public_numbers.e.bit_length() + 7) // 8, byteorder="big")).rstrip(b"=").decode("utf-8")
+
+            data.append(
+                {
+                    "kid": key_id,
+                    "kty": "RSA",
+                    "alg": "RS256",
+                    "use": "sig",
+                    "n": modulus_n,
+                    "e": exponent_e
+                }
+            )
+    debug(f"Request: '/s2s/keys' Reply: {data}")
+    return jsonify({"keys": data})
+
+@bp.route('/s2s/userinfo')
+def userinfo_endpoint():
+    bearer = request.authorization.token
+    if bearer:
+        first_pass = jwt.decode(bearer, algorithms="RS256", options={"verify_signature": False})
+        application: Application = Application.query.filter(Application.key_id == first_pass['kid']).one_or_none()
+        token = jwt.decode(bearer, audience=application.client_id, key=application.rsa_public_key, algorithms="RS256")
+        if token:
+            user: User = User.query.filter(User.username == token['sub']).one_or_none()
+
+            reply = user.oidc_claim(token['scope'])
+            debug(f"Request: '/s2s/userinfo' Reply: {reply}")
+            return jsonify(reply)
+    return invalid_token_data('Invalid authorization')
+
+
+@bp.route('/s2s/introspection', methods=['POST'])
+def introspection_endpoint():
+    bearer = request.authorization.token
+    if bearer:
+        first_pass = jwt.decode(bearer, algorithms="RS256", options={"verify_signature": False})
+        application: Application = Application.query.filter(Application.key_id == first_pass['kid']).one_or_none()
+        token = jwt.decode(bearer, audience=application.client_id, key=application.rsa_public_key, algorithms="RS256")
+
+        authentication: Authentication = Authentication.query.filter(
+            Authentication.audience == token['aud'],
+            Authentication.subject == token['sub'],
+            Authentication.auth_time == token['iat']
+        ).one_or_none()
+    reply = {
+        "active": True,
+        "scope": authentication.scope,
+        "exp": authentication.expiry_time,
+        "iat": authentication.authentication_time,
+        "sub": authentication.subject,
+        "iss": request.host_url.removesuffix('/') + url_for('main.index'),
+        "aud": authentication.audience,
+        "nbf": authentication.not_before,
+        "jti": authentication.token_identifier
+    }
+    return jsonify(reply)
