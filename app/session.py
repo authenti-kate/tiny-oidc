@@ -8,7 +8,6 @@ import json
 
 def _mySession() -> Session:
     session_key = session['key'] if 'key' in session else None
-    now = datetime.now(timezone.utc)
 
     if session_key:
         my_session = None
