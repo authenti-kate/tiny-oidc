@@ -2,7 +2,7 @@ from app.extensions import db
 import sqlalchemy as sa
 
 class Authentication(db.Model):
-    id = db.Column(sa.Integer(255), primary_key=True)
+    id = db.Column(sa.Integer(), primary_key=True)
     token_identifier = db.Column(sa.String(32))
     subject = db.Column(db.String(255))
     audience = db.Column(db.String(255))
