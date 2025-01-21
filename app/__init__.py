@@ -13,6 +13,7 @@ def create_app(config_class=Config):
     db.init_app(app)
     with app.app_context():
         from app.models.application import Application, initApplication
+        from app.models.authentication import Authentication
         from app.models.authorization import Authorization
         from app.models.log import Log
         from app.models.session import Session
