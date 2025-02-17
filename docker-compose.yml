@@ -1,25 +1,25 @@
 services:
-  # tiny-oidc:
-  #   # Build the image from the Dockerfile in the current directory
-  #   build:
-  #     context: .
-  #     dockerfile: Dockerfile
-  #     network: host
+  tiny-oidc:
+    # Build the image from the Dockerfile in the current directory
+    build:
+      context: .
+      dockerfile: Dockerfile
+      network: host
 
-  #   image: localhost/tinyoidc:latest
+    image: localhost/tinyoidc:latest
 
-  #   # Host the application on port 8000
-  #   ports:
-  #     - "80:8000"
+    # Host the application on port 8000
+    ports:
+      - "192.0.2.5:8000:8000"
 
   oidc-test-client:
     image: ghcr.io/beryju/oidc-test-client:latest
     ports:
       - 9009:9009
     environment:
-      OIDC_CLIENT_ID: 12decaf34bad56
+      OIDC_CLIENT_ID: client_id_12decaf34bad56
       OIDC_CLIENT_SECRET: Super-+Secret_=Key0123456789
-      OIDC_PROVIDER: http://tiny-oidc.192.168.2.9.nip.io:8000
+      OIDC_PROVIDER: http://192.0.2.5:8000
       OIDC_TLS_VERIFY: false
 
     # depends_on:
