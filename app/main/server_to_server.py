@@ -128,18 +128,25 @@ def token_endpoint():
         key_id = application.key_id
         expires_in_minutes=3600
 
-        authentication = Authentication()
-        authentication.subject = user.username
-        authentication.audience = authorization.application_client_id
-        authentication.not_before = datetime.now(timezone.utc).timestamp()
-        authentication.authentication_time = datetime.now(timezone.utc).timestamp()
-        authentication.expiry_time = (timedelta(minutes=expires_in_minutes) + datetime.now(timezone.utc)).timestamp()
-        authentication.scope = authorization.scope
-        authentication.token_identifier = hashlib.md5(str(f"{authentication.id}.{authentication.subject}.{authentication.authentication_time}").encode('utf-8')).hexdigest()
-        
-        db.session.add(authentication)
-        db.session.commit()
-        debug(authentication.trace())
+        authentication = Authentication.query.filter(
+            Authentication.subject == user.username,
+            Authentication.audience == authorization.application_client_id,
+            Authentication.not_before <= datetime.now(timezone.utc),
+            Authentication.expiry_time >= datetime.now(timezone.utc)
+        ).one_or_none()
+        if authentication is None:
+            authentication = Authentication()
+            authentication.subject = user.username
+            authentication.audience = authorization.application_client_id
+            authentication.not_before = datetime.now(timezone.utc)
+            authentication.authentication_time = datetime.now(timezone.utc)
+            authentication.expiry_time = (timedelta(minutes=expires_in_minutes) + datetime.now(timezone.utc))
+            authentication.scope = authorization.scope
+            authentication.token_identifier = hashlib.md5(str(f"{authentication.id}.{authentication.subject}.{authentication.authentication_time}").encode('utf-8')).hexdigest()
+            
+            db.session.add(authentication)
+            db.session.commit()
+            debug(authentication.trace())
 
         access_token = jwt.encode(
             {
@@ -147,8 +154,8 @@ def token_endpoint():
                 "aud": authentication.audience,
                 "iss": request.host_url.removesuffix('/') + url_for('main.index'),
                 # What time was this application's authentication session started?
-                "iat": authentication.authentication_time,
-                "exp": authentication.expiry_time,
+                "iat": authentication.authentication_time.timestamp(),
+                "exp": authentication.expiry_time.timestamp(),
                 "scope": authentication.scope,
                 "kid": key_id
             },
@@ -259,20 +266,28 @@ def introspection_endpoint():
         application: Application = Application.query.filter(Application.key_id == first_pass['kid']).one_or_none()
         token = jwt.decode(bearer, audience=application.client_id, key=application.rsa_public_key, algorithms="RS256")
 
-        authentication: Authentication = Authentication.query.filter(
+        query = Authentication.query.filter(
             Authentication.audience == token['aud'],
             Authentication.subject == token['sub'],
-            Authentication.auth_time == token['iat']
-        ).one_or_none()
-    reply = {
-        "active": True,
-        "scope": authentication.scope,
-        "exp": authentication.expiry_time,
-        "iat": authentication.authentication_time,
-        "sub": authentication.subject,
-        "iss": request.host_url.removesuffix('/') + url_for('main.index'),
-        "aud": authentication.audience,
-        "nbf": authentication.not_before,
-        "jti": authentication.token_identifier
-    }
-    return jsonify(reply)
+            Authentication.authentication_time >= datetime.fromtimestamp(int(token['iat'])-1).replace(tzinfo=None),
+            Authentication.authentication_time <= datetime.fromtimestamp(int(token['iat'])+1).replace(tzinfo=None),
+        )
+        authentication: Authentication = query.all()
+
+        if len(authentication) == 0:
+            return invalid_token_data('Invalid logged authentication - no records found')
+        authentication = authentication[0]
+
+        reply = {
+            "active": True,
+            "scope": authentication.scope,
+            "exp": authentication.expiry_time.timestamp(),
+            "iat": authentication.authentication_time.timestamp(),
+            "sub": authentication.subject,
+            "iss": request.host_url.removesuffix('/') + url_for('main.index'),
+            "aud": authentication.audience,
+            "nbf": authentication.not_before.timestamp(),
+            "jti": authentication.token_identifier
+        }
+        debug(reply)
+        return jsonify(reply)
