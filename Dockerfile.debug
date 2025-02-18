@@ -26,5 +26,11 @@ COPY --from=builder --chown=app:app /app /app
 ENV PATH="/app/.venv/bin:$PATH"
 
 # Run the FastAPI application by default
-CMD ["python3", "/app/app.py"]
+#CMD ["python3", "/app/app.py"]
 HEALTHCHECK --interval=5s --start-period=5s CMD [ "curl", "-f", "http://localhost:8000/health" ]
+
+# Extra steps for debugging
+RUN pip install debugpy -t /tmp
+
+WORKDIR /app
+CMD ["python3", "/tmp/debugpy", "--wait-for-client", "--listen", "0.0.0.0:5678", "app.py"]

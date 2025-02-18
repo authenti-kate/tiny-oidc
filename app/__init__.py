@@ -2,8 +2,7 @@ from flask import Flask
 
 from config import Config
 from app.extensions import db
-from app.log import debug
-from sqlalchemy import MetaData
+from app.models import db_setup
 
 def create_app(config_class=Config):
     app = Flask(__name__)
@@ -12,18 +11,10 @@ def create_app(config_class=Config):
     # Initialize Flask extensions here
     db.init_app(app)
     with app.app_context():
-        from app.models.application import Application, initApplication
-        from app.models.authentication import Authentication
-        from app.models.authorization import Authorization
-        from app.models.log import Log
-        from app.models.session import Session
-        from app.models.user import User, initUser
-        db.create_all()
-        initUser()
-        initApplication()
+        db_setup()
 
     # Register blueprints here
-    from app.main import bp as main_bp
-    app.register_blueprint(main_bp)
+    from app.views import bp
+    app.register_blueprint(bp)
 
     return app

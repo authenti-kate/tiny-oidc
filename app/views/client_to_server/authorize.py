@@ -1,15 +1,22 @@
 import re
 from datetime import datetime, timezone
-from flask import url_for, redirect, request, Response
-from app.log import debug, trace
-from app.main import bp
+from flask import url_for, redirect, request
+from app.log import debug
+from app.views import bp
 from app.extensions import db
 from app.models.application import Application
 from app.models.authorization import Authorization
 from app.session import getSessionData, setSessionData, deleteSessionData, _mySession
+from app.views.client_to_server import invalid_authorize_data
+
 
 @bp.route('/c2s/authorize')
 def authorization_endpoint():
+    data = {}
+    for key in request.args.keys():
+        data[key] = request.args.get(key)
+    debug(f'GET: /c2s/authorize args: {data}')
+
     invalid_context = []
 
     # Check inbound request contains required fields
@@ -58,7 +65,7 @@ def authorization_endpoint():
         setSessionData('scope',         scope)
         setSessionData('redirect_uri',  redirect_uri)
         setSessionData('state',         state)
-        return redirect(url_for('main.login'))
+        return redirect(url_for('views.login'))
     else:
         # We got back here, we don't need to keep this now.
         deleteSessionData('client_id')
@@ -68,12 +75,14 @@ def authorization_endpoint():
         deleteSessionData('state')
 
     # Get the authorization record
+    auth_state = 'Existing '
     authorization: Authorization = Authorization.query.filter(
         Authorization.user == user_key,
         Authorization.application_client_id == application.client_id,
         Authorization.session_valid >= datetime.now(timezone.utc)
     ).one_or_none()
     if not authorization:
+        auth_state = 'New '
         authorization: Authorization = Authorization(
             user=user_key,
             application_client_id=application.client_id,
@@ -82,29 +91,6 @@ def authorization_endpoint():
         )
         db.session.add(authorization)
         db.session.commit()
-        debug(authorization.trace())
+    debug(auth_state + authorization.trace())
 
     return redirect(f'{redirect_uri}?code={authorization.code}&state={state}')
-
-
-def invalid_authorize_data(message):
-    return Response(f"""
-<html>
-    <head>
-        <title>Tiny OIDC Server - Error</title>
-    </head>
-    <body>
-        <h1>Tiny OIDC Server - Error</h1>
-        <hr>
-        <h2 color="red">BE WARNED, THIS SERVER IS NOT SECURE AND IS USED FOR POC TESTING ONLY</h2>
-        <hr>
-        <p>{message}</p>
-    </body>
-</html>""", status=400)
-
-
-@bp.route('/unknown/client')
-def client_endpoint():
-    # @TODO: Write this endpoint
-    return 'INCOMPLETE'
-

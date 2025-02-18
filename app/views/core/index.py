@@ -1,12 +1,12 @@
 from flask import url_for
+from app.views import bp
 from app.log import debug
-from datetime import datetime, timezone
-from app.main import bp
 from app.models.user import User
-from app.session import getSessionData, _mySession
+from app.session import getSessionData
 
 @bp.route('/')
 def index():
+    debug(f'GET: /')
     user_object = None
     user = getSessionData('user')
     if user:
@@ -27,44 +27,12 @@ def index():
     if user_object:
         content += f"""
         <p>Logged in as "{user_object.display_name}" - {user_object.first_name} {user_object.last_name} - "{user_object.email}"</p>
-        <p><a href="{url_for('main.logout')}">Log out</a></p>"""
+        <p><a href="{url_for('views.logout')}">Log out</a></p>"""
     else:
         content += f"""
         <p>Not currently logged in.</p>
-        <p><a href="{url_for('main.login')}">Log In</a> or setup a client.</p>"""
+        <p><a href="{url_for('views.login')}">Log In</a> or setup a client.</p>"""
     content += """
     </body>
 </html>"""
     return content
-
-@bp.route('/health')
-def test_page():
-    return """<!DOCTYPE html>
-<html>
-    <head>
-        <title>Tiny OIDC Server - Health</title>
-    </head>
-    <body>
-        <h1>OK</h1>
-    </body>
-</html>"""
-
-@bp.route('/cron')
-def cron():
-    from app.models.session import Session
-    rows = Session.query.filter(Session.expires <= datetime.now(timezone.utc)).delete()
-    if rows > 0:
-        debug(f'Deleted {rows} rows from Session table')
-    from app.models.authorization import Authorization
-    rows = Authorization.query.filter(Authorization.session_valid <= datetime.now(timezone.utc)).delete()
-    if rows > 0:
-        debug(f'Deleted {rows} rows from Authorization table')
-    return f"""<!DOCTYPE html>
-<html>
-    <head>
-        <title>Tiny OIDC Server - Cron</title>
-    </head>
-    <body>
-        <h1>OK</h1>
-    </body>
-</html>"""
