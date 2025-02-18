@@ -1,9 +1,32 @@
 services:
   tiny-oidc:
     # Build the image from the Dockerfile in the current directory
+    #
+    # Uncomment the .debug and extra port if you want to use vscode
+    # to debug state. You will need to add this to your launch.json
+    # in .vscode if you do:
+    # ```
+    # {
+    #     "name": "Tiny-OIDC in a container",
+    #     "type": "debugpy",
+    #     "request": "attach",
+    #     "connect": {
+    #         "host": "localhost",
+    #         "port": 5678
+    #     },
+    #     "pathMappings": [
+    #         {
+    #             "localRoot": "${workspaceFolder}",
+    #             "remoteRoot": "."
+    #         }
+    #     ],
+    #     "justMyCode": true
+    # }
+    # ```
     build:
       context: .
       dockerfile: Dockerfile
+      # dockerfile: Dockerfile.debug
       network: host
 
     image: localhost/tinyoidc:latest
@@ -11,6 +34,7 @@ services:
     # Host the application on port 8000
     ports:
       - "192.0.2.5:8000:8000"
+      # - "5678:5678"
 
   oidc-test-client:
     image: ghcr.io/beryju/oidc-test-client:latest
@@ -22,7 +46,7 @@ services:
       OIDC_PROVIDER: http://192.0.2.5:8000
       OIDC_TLS_VERIFY: false
 
-    # depends_on:
-    #   - tiny-oidc
-    # restart: on-failure
+    depends_on:
+      - tiny-oidc
+    restart: on-failure
   

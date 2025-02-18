@@ -1,4 +1,3 @@
-import uuid
 import sqlalchemy as sa
 from app.extensions import db
 from datetime import datetime, timezone

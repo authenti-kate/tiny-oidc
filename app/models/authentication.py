@@ -3,7 +3,6 @@ import sqlalchemy as sa
 
 class Authentication(db.Model):
     id = db.Column(sa.Integer(), primary_key=True)
-    token_identifier = db.Column(sa.String(32))
     subject = db.Column(db.String(255))
     audience = db.Column(db.String(255))
     authentication_time = db.Column(sa.DateTime)
@@ -14,7 +13,6 @@ class Authentication(db.Model):
     def trace(self):
         data = {
             'id': self.id,
-            'token_identifier': self.token_identifier,
             'subject': self.subject,
             'audience': self.audience,
             'authentication_time': self.authentication_time.strftime("%Y-%m-%d %H:%M:%S"),

@@ -1,32 +1,10 @@
 from flask import url_for, request, redirect
 from datetime import datetime, timezone
 from app.log import trace, info
-from app.main import bp
+from app.views import bp
 from app.models.user import User
-from app.session import getSessionData, setSessionData, deleteSessionData, _mySession
-
-
-@bp.route('/user/logout')
-def logout():
-    """
-    This function removes login session data, forcing a re-login on the next connection attempt.
-    """
-    deleteSessionData('user')
-    deleteSessionData('sign_in')
-    return f"""
-<html>
-    <head>
-        <title>Tiny OIDC Server - Logout</title>
-    </head>
-    <body>
-        <h1>Tiny OIDC Server - Logout</h1>
-        <hr>
-        <h2 color="red">BE WARNED, THIS SERVER IS NOT SECURE AND IS USED FOR POC TESTING ONLY</h2>
-        <hr>
-        <p><a href="{url_for('main.login')}">Log back in</a></p>
-    </body>
-</html>"""
-
+from app.log import debug
+from app.session import getSessionData, setSessionData, _mySession
 
 @bp.route('/user/login', methods=['GET', 'POST'])
 def login():
@@ -36,6 +14,7 @@ def login():
     2. If you are NOT already logged in, but have provided authentication credentials, it will attempt to confirm they are valid, and redirect accordingly
     3. If you are not logged in, and haven't provided credentials, it will present the login page.
     """
+    debug(f'{request.method}: /user/login')
 
     signed_in = False
     user = None
@@ -61,7 +40,7 @@ def login():
             info(f'Valid sign in for {username}', str(_mySession().key))
         else:
             trace(f'Invalid sign in for user: "{username}"', str(_mySession().key))
-            return redirect(url_for('main.login'))
+            return redirect(url_for('views.login'))
 
     # Redirect a logged in user accordingly
     if signed_in:
@@ -76,7 +55,7 @@ def login():
         ):
             return redirect(
                 url_for(
-                    'main.authorization_endpoint',
+                    'views.authorization_endpoint',
                     client_id=client_id,
                     response_type=response_type,
                     scope=scope,
@@ -85,7 +64,7 @@ def login():
                 )
             )
         else:
-            return redirect(url_for('main.index'))
+            return redirect(url_for('views.index'))
 
     else:
         # Provide a (horrifically insecure) login screen
@@ -123,7 +102,7 @@ def login():
                         Groups: {groups}
                     </td>
                     <td>
-                        <form action="{url_for('main.login')}" method="post">
+                        <form action="{url_for('views.login')}" method="post">
                             <input type="hidden" name="username" value="{username}">
                             <input type="hidden" name="password" value="{password}">
                             <button type="submit">Login as {username}</button>

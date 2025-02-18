@@ -9,8 +9,8 @@ class Authorization(db.Model):
     application_client_id = db.Column(sa.String(255), index=True)
     authentication_start = db.Column(sa.DateTime, default=(datetime.now(timezone.utc)))
     session_start = db.Column(sa.DateTime, default=(datetime.now(timezone.utc)))
-    session_valid = db.Column(sa.DateTime, default=(datetime.now(timezone.utc)+timedelta(hours=4)))
-    code = db.Column(sa.String(255), default=str(uuid.uuid4()))
+    session_valid = db.Column(sa.DateTime, default=(datetime.now(timezone.utc)+timedelta(minutes=15)))
+    code = db.Column(sa.String(255))
     scope = db.Column(sa.String(255))
     
     __table_args__ = (
@@ -21,6 +21,39 @@ class Authorization(db.Model):
         ),
     )
 
+    def __init__(
+        self,
+        user = None,
+        application_client_id = None,
+        authentication_start = None,
+        session_start = None,
+        session_valid = None,
+        code = None,
+        scope = None
+    ):
+        if user is not None:
+            self.user = user
+            
+        if application_client_id is not None:
+            self.application_client_id = application_client_id
+
+        if authentication_start is not None:
+            self.authentication_start = authentication_start
+
+        if session_start is not None:
+            self.session_start = session_start
+
+        if session_valid is not None:
+            self.session_valid = session_valid
+
+        if code is not None:
+            self.code = code
+        else:
+            self.code = str(uuid.uuid4())
+
+        if scope is not None:
+            self.scope = scope
+
     def trace(self):
         data = {
             'user': self.user,
@@ -29,7 +62,7 @@ class Authorization(db.Model):
             'session_start': self.session_start.strftime("%Y-%m-%d %H:%M:%S"),
             'session_valid': self.session_valid.strftime("%Y-%m-%d %H:%M:%S"),
             'code': self.code,
-            'scope': self.code
+            'scope': self.scope
         }
         return f'Authorization: {data}'
 
