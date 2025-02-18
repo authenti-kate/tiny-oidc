@@ -1,7 +1,6 @@
 import os
 import logging
 from app.extensions import db
-from app.session import _mySession
 from app.models.log import Log, enumLevel
 
 logging.basicConfig(level=logging.DEBUG)

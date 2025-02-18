@@ -1,5 +1,4 @@
 import base64
-import hashlib
 from app.extensions import db
 
 def initApplication():
