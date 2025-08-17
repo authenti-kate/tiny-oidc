@@ -33,6 +33,8 @@ def authorization_endpoint():
     if not state:
         invalid_context.append('state')
 
+    nonce = request.args.get('nonce', getSessionData('nonce'))
+
     # These two are a bit more complex - but are still checking for required fields
     redirect_uri = request.args.get(
         'redirect_uri', getSessionData('redirect_uri'))
@@ -78,6 +80,8 @@ def authorization_endpoint():
         setSessionData('scope',         scope)
         setSessionData('redirect_uri',  redirect_uri)
         setSessionData('state',         state)
+        if nonce:
+            setSessionData('nonce',         nonce)
         return redirect(url_for('views.login'))
     else:
         # We got back here, we don't need to keep this now.
@@ -86,6 +90,7 @@ def authorization_endpoint():
         deleteSessionData('scope')
         deleteSessionData('redirect_uri')
         deleteSessionData('state')
+        deleteSessionData('nonce')
 
     # Get the authorization record
     auth_state = 'Existing '
@@ -101,7 +106,8 @@ def authorization_endpoint():
             user=user_key,
             application_client_id=application.client_id,
             scope=scope,
-            authentication_start=datetime.fromtimestamp(getSessionData('sign_in'))
+            authentication_start=datetime.fromtimestamp(getSessionData('sign_in'), timezone.utc),
+            nonce=nonce
         )
         db.session.add(authorization)
         db.session.commit()

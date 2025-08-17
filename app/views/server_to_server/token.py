@@ -166,6 +166,10 @@ def token_endpoint():
         "name": user.display_name
     }
 
+    # Add nonce if it was provided in the authorization request
+    if authorization.nonce:
+        id_content["nonce"] = authorization.nonce
+
     debug(f'id_content: {id_content}')
 
     id_token = jwt.encode(

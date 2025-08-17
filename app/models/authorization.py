@@ -12,6 +12,7 @@ class Authorization(db.Model):
     session_valid = db.Column(sa.DateTime, default=(datetime.now(timezone.utc)+timedelta(minutes=15)))
     code = db.Column(sa.String(255))
     scope = db.Column(sa.String(255))
+    nonce = db.Column(sa.String(255))
     
     __table_args__ = (
         db.PrimaryKeyConstraint(
@@ -29,7 +30,8 @@ class Authorization(db.Model):
         session_start = None,
         session_valid = None,
         code = None,
-        scope = None
+        scope = None,
+        nonce = None
     ):
         if user is not None:
             self.user = user
@@ -54,6 +56,9 @@ class Authorization(db.Model):
         if scope is not None:
             self.scope = scope
 
+        if nonce is not None:
+            self.nonce = nonce
+
     def trace(self):
         data = {
             'user': self.user,
@@ -62,7 +67,8 @@ class Authorization(db.Model):
             'session_start': self.session_start.strftime("%Y-%m-%d %H:%M:%S"),
             'session_valid': self.session_valid.strftime("%Y-%m-%d %H:%M:%S"),
             'code': self.code,
-            'scope': self.scope
+            'scope': self.scope,
+            'nonce': self.nonce
         }
         return f'Authorization: {data}'
 
