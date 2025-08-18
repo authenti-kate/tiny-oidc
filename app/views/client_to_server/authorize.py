@@ -1,5 +1,5 @@
 import re
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from flask import url_for, redirect, request
 from app.log import debug
 from app.views import bp
@@ -85,6 +85,10 @@ def authorization_endpoint():
         return redirect(url_for('views.login'))
     else:
         # We got back here, we don't need to keep this now.
+        # But preserve nonce for the authorization creation
+        stored_nonce = getSessionData('nonce')
+        if stored_nonce and not nonce:
+            nonce = stored_nonce
         deleteSessionData('client_id')
         deleteSessionData('response_type')
         deleteSessionData('scope')
@@ -102,15 +106,24 @@ def authorization_endpoint():
     ).one_or_none()
     if not authorization:
         auth_state = 'New '
+        now_utc = datetime.now(timezone.utc)
         authorization: Authorization = Authorization(
             user=user_key,
             application_client_id=application.client_id,
             scope=scope,
             authentication_start=datetime.fromtimestamp(getSessionData('sign_in'), timezone.utc),
+            session_start=now_utc,
+            session_valid=now_utc + timedelta(minutes=15),
             nonce=nonce
         )
         db.session.add(authorization)
         db.session.commit()
+    else:
+        # Update the nonce for the existing authorization to match the current request
+        if nonce and authorization.nonce != nonce:
+            authorization.nonce = nonce
+            db.session.commit()
+            auth_state = 'Updated '
     debug(auth_state + authorization.trace())
 
     # If we don't authenticate the user, we should, *strictly speaking*
