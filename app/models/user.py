@@ -10,7 +10,7 @@ def initUser():
             first_name = 'Joe',
             last_name = 'Administrator',
             display_name = "TheBOFH",
-            groups = 'Admins,Users,service_admins'
+            groups = 'admins,Users,service_admins'
         )
         it = User(
             username = 'it',
@@ -30,9 +30,49 @@ def initUser():
             display_name = 'Dollar',
             groups = 'Users,Accounts,service_users'
         )
+        auditor = User(
+            username = 'auditor',
+            password = 'Hunter2!',
+            email = 'auditor@example.org',
+            first_name = 'Alice',
+            last_name = 'Audit',
+            display_name = 'Auditor',
+            groups = 'Users,auditors'
+        )
+        sysadmin = User(
+            username = 'sysadmin',
+            password = 'Hunter2!',
+            email = 'sysadmin@example.org',
+            first_name = 'Sam',
+            last_name = 'System',
+            display_name = 'SysAdmin',
+            groups = 'Users,system-admins'
+        )
+        reception = User(
+            username = 'reception',
+            password = 'Hunter2!',
+            email = 'rachel@example.org',
+            first_name = 'Rachel',
+            last_name = 'Reception',
+            display_name = 'Building 42 Reception',
+            groups = 'Users,front_door'
+        )
+        contractor = User(
+            username = 'contractor',
+            password = 'Hunter2!',
+            email = 'chris@contracting.example.com',
+            first_name = 'Chris',
+            last_name = 'Contractor',
+            display_name = 'Christian "Spec Work" Contractor',
+            groups = 'Users,Contractors'
+        )
         db.session.add(admin)
         db.session.add(it)
         db.session.add(accounts)
+        db.session.add(auditor)
+        db.session.add(sysadmin)
+        db.session.add(reception)
+        db.session.add(contractor)
         db.session.commit()
 
 class User(db.Model):
