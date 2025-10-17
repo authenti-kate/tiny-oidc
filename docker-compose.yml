@@ -29,7 +29,7 @@ services:
       # dockerfile: Dockerfile.debug
       network: host
 
-    image: localhost/tinyoidc:latest
+    image: ghcr.io/authenti-kate/tiny-oidc:latest
 
     # Host the application on port 8000
     ports:
