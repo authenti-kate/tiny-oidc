@@ -48,7 +48,13 @@ def token_endpoint():
         if not user or not application:
             # TODO: Check What to do if the application or user are no longer valid?
             return invalid_token_data('Invalid user or application')
-        
+
+        # Extend expiration for non-permanent applications
+        if application.client_id != "client_id_12decaf34bad56" and application.expires_at is not None:
+            application.expires_at = datetime.now(timezone.utc) + timedelta(days=7)
+            db.session.commit()
+            debug(f'Extended expiration for {application.client_id} to {application.expires_at}')
+
         client_id = application.client_id
         client_secret = application.client_secret
         scope = refresh_token.scope
@@ -98,6 +104,13 @@ def token_endpoint():
                 debug(
                     f'In /s2s/token - Invalid application context provided : {", ".join(invalid_context)}')
                 return invalid_token_data('Invalid application context provided')
+
+            # Extend expiration for non-permanent applications
+            if application.client_id != "client_id_12decaf34bad56" and application.expires_at is not None:
+                application.expires_at = datetime.now(timezone.utc) + timedelta(days=7)
+                db.session.commit()
+                debug(f'Extended expiration for {application.client_id} to {application.expires_at}')
+
             scope = authorization.scope
             auth_time = authorization.authentication_start
         else:
@@ -158,16 +171,13 @@ def token_endpoint():
         "iat": now_time.timestamp(),
         # When does this session expire?
         "exp": (timedelta(minutes=expires_in_minutes)+now_time).timestamp(),
-        # User context
-        # The internal reference for this User ID
-        "sub": user.username,
-        "email": user.email,
-        "preferred_username": user.username,
-        "name": user.display_name
     }
 
-    # Add nonce if it was provided in the authorization request
-    if authorization.nonce:
+    # Add user claims based on requested scopes
+    id_content.update(user.oidc_claim(scope))
+
+    # Add nonce if it was provided in the authorization request (only for authorization_code flow)
+    if grant_type == 'authorization_code' and authorization.nonce:
         id_content["nonce"] = authorization.nonce
 
     debug(f'id_content: {id_content}')

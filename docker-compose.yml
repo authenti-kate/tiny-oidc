@@ -45,6 +45,7 @@ services:
       OIDC_CLIENT_SECRET: Super-+Secret_=Key0123456789
       OIDC_PROVIDER: http://192.0.2.5:8000
       OIDC_TLS_VERIFY: false
+      OIDC_SCOPES: openid,offline_access,profile,email,groups
 
     depends_on:
       - tiny-oidc

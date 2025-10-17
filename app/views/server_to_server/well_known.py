@@ -50,9 +50,12 @@ def well_known():
                 "name",
                 "email",
                 "preferred_username",
+                "given_name",
+                "family_name",
+                "groups",
             ## UNMAPPED DATA
-            #     "ver", "jti", "amr", "idp", "nonce", "nickname", "given_name", "middle_name",
-            #     "family_name", "email_verified", "profile", "zoneinfo", "locale", "address",
+            #     "ver", "jti", "amr", "idp", "nonce", "nickname", "middle_name",
+            #     "email_verified", "profile", "zoneinfo", "locale", "address",
             #     "phone_number", "picture", "website", "gender", "birthdate", "updated_at",
             #     "at_hash", "c_hash"
             ],

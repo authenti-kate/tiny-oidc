@@ -15,6 +15,26 @@ def index():
 <html>
     <head>
         <title>Tiny OIDC Server</title>
+        <style>
+            body {
+                font-family: Arial, sans-serif;
+                margin: 40px;
+                max-width: 900px;
+            }
+            .info-box {
+                background-color: #f0f8ff;
+                border: 1px solid #4a90e2;
+                padding: 15px;
+                margin: 20px 0;
+                border-radius: 5px;
+            }
+            .code {
+                background-color: #f5f5f5;
+                padding: 2px 6px;
+                border-radius: 3px;
+                font-family: monospace;
+            }
+        </style>
     </head>
     <body>
         <h1>Tiny OIDC Server</h1>
@@ -23,7 +43,18 @@ def index():
             <a href="https://darutk.medium.com/diagrams-of-all-the-openid-connect-flows-6968e3990660">this set of annotated diagrams</a>.</p>
         <hr>
         <h2 color="red">BE WARNED, THIS SERVER IS NOT SECURE AND IS USED FOR POC TESTING ONLY</h2>
-        <hr>"""
+        <hr>
+
+        <div class="info-box">
+            <h3>Quick Start: Generate a Client Application</h3>
+            <p>Visit <a href="/app">/app</a> to generate a new client_id and client_secret for testing.</p>
+            <ul>
+                <li><strong>Auto-generated applications expire after 7 days</strong></li>
+                <li>Each time you use the credentials, the expiration deadline is extended to 7 days from when you used the credential</li>
+                <li>The default application <span class="code">client_id_12decaf34bad56</span> never expires</li>
+                <li>The special client_id <span class="code">invalid_client_id</span> will always fail authentication</li>
+            </ul>
+        </div>"""
     if user_object:
         content += f"""
         <p>Logged in as "{user_object.display_name}" - {user_object.first_name} {user_object.last_name} - "{user_object.email}"</p>
