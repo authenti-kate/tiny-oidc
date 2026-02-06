@@ -13,6 +13,8 @@ class Authorization(db.Model):
     code = db.Column(sa.String(255))
     scope = db.Column(sa.String(255))
     nonce = db.Column(sa.String(255))
+    code_challenge = db.Column(sa.String(255))
+    code_challenge_method = db.Column(sa.String(10))
     
     __table_args__ = (
         db.PrimaryKeyConstraint(
@@ -31,7 +33,9 @@ class Authorization(db.Model):
         session_valid = None,
         code = None,
         scope = None,
-        nonce = None
+        nonce = None,
+        code_challenge = None,
+        code_challenge_method = None
     ):
         if user is not None:
             self.user = user
@@ -59,6 +63,12 @@ class Authorization(db.Model):
         if nonce is not None:
             self.nonce = nonce
 
+        if code_challenge is not None:
+            self.code_challenge = code_challenge
+
+        if code_challenge_method is not None:
+            self.code_challenge_method = code_challenge_method
+
     def trace(self):
         data = {
             'user': self.user,
@@ -68,7 +78,9 @@ class Authorization(db.Model):
             'session_valid': self.session_valid.strftime("%Y-%m-%d %H:%M:%S"),
             'code': self.code,
             'scope': self.scope,
-            'nonce': self.nonce
+            'nonce': self.nonce,
+            'code_challenge': self.code_challenge,
+            'code_challenge_method': self.code_challenge_method
         }
         return f'Authorization: {data}'
 

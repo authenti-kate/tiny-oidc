@@ -35,6 +35,10 @@ def authorization_endpoint():
 
     nonce = request.args.get('nonce', getSessionData('nonce'))
 
+    # PKCE (RFC 7636) parameters
+    code_challenge = request.args.get('code_challenge', getSessionData('code_challenge'))
+    code_challenge_method = request.args.get('code_challenge_method', getSessionData('code_challenge_method'))
+
     # These two are a bit more complex - but are still checking for required fields
     redirect_uri = request.args.get(
         'redirect_uri', getSessionData('redirect_uri'))
@@ -82,6 +86,10 @@ def authorization_endpoint():
         setSessionData('state',         state)
         if nonce:
             setSessionData('nonce',         nonce)
+        if code_challenge:
+            setSessionData('code_challenge', code_challenge)
+        if code_challenge_method:
+            setSessionData('code_challenge_method', code_challenge_method)
         return redirect(url_for('views.login'))
     else:
         # We got back here, we don't need to keep this now.
@@ -89,12 +97,20 @@ def authorization_endpoint():
         stored_nonce = getSessionData('nonce')
         if stored_nonce and not nonce:
             nonce = stored_nonce
+        stored_code_challenge = getSessionData('code_challenge')
+        if stored_code_challenge and not code_challenge:
+            code_challenge = stored_code_challenge
+        stored_code_challenge_method = getSessionData('code_challenge_method')
+        if stored_code_challenge_method and not code_challenge_method:
+            code_challenge_method = stored_code_challenge_method
         deleteSessionData('client_id')
         deleteSessionData('response_type')
         deleteSessionData('scope')
         deleteSessionData('redirect_uri')
         deleteSessionData('state')
         deleteSessionData('nonce')
+        deleteSessionData('code_challenge')
+        deleteSessionData('code_challenge_method')
 
     # Get the authorization record
     auth_state = 'Existing '
@@ -114,14 +130,23 @@ def authorization_endpoint():
             authentication_start=datetime.fromtimestamp(getSessionData('sign_in'), timezone.utc),
             session_start=now_utc,
             session_valid=now_utc + timedelta(minutes=15),
-            nonce=nonce
+            nonce=nonce,
+            code_challenge=code_challenge,
+            code_challenge_method=code_challenge_method
         )
         db.session.add(authorization)
         db.session.commit()
     else:
-        # Update the nonce for the existing authorization to match the current request
+        # Update the nonce and PKCE params for the existing authorization to match the current request
+        updated = False
         if nonce and authorization.nonce != nonce:
             authorization.nonce = nonce
+            updated = True
+        if code_challenge and authorization.code_challenge != code_challenge:
+            authorization.code_challenge = code_challenge
+            authorization.code_challenge_method = code_challenge_method
+            updated = True
+        if updated:
             db.session.commit()
             auth_state = 'Updated '
     debug(auth_state + authorization.trace())

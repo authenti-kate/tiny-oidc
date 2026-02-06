@@ -1,6 +1,7 @@
 import os
 import jwt
 import hashlib
+import base64
 from datetime import datetime, timezone, timedelta
 from flask import jsonify, url_for, request
 from app.log import debug
@@ -82,6 +83,25 @@ def token_endpoint():
         ).one_or_none()
 
         if authorization:
+            # PKCE validation (RFC 7636)
+            code_verifier = request.form.get('code_verifier', None)
+            if authorization.code_challenge:
+                if not code_verifier:
+                    return invalid_token_data('Missing code_verifier for PKCE')
+                if authorization.code_challenge_method == 'S256':
+                    computed = base64.urlsafe_b64encode(
+                        hashlib.sha256(code_verifier.encode('ascii')).digest()
+                    ).rstrip(b'=').decode('ascii')
+                    if computed != authorization.code_challenge:
+                        return invalid_token_data('Invalid code_verifier')
+                elif authorization.code_challenge_method == 'plain':
+                    if code_verifier != authorization.code_challenge:
+                        return invalid_token_data('Invalid code_verifier')
+                else:
+                    return invalid_token_data('Unsupported code_challenge_method')
+            elif code_verifier:
+                return invalid_token_data('Unexpected code_verifier')
+
             client_id = authorization.application_client_id
             application: Application = Application.query.filter(
                 Application.client_id == authorization.application_client_id
