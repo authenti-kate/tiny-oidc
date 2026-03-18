@@ -177,7 +177,8 @@ def token_endpoint():
     access_token = jwt.encode(
         access_content,
         private_key,
-        algorithm="RS256"
+        algorithm="RS256",
+        headers={"kid": key_id}
     )
 
     id_content = {
@@ -205,7 +206,8 @@ def token_endpoint():
     id_token = jwt.encode(
         id_content,
         private_key,
-        algorithm="RS256"
+        algorithm="RS256",
+        headers={"kid": key_id}
     )
 
     reply = {
