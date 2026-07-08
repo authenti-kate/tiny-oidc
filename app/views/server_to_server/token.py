@@ -34,12 +34,13 @@ def token_endpoint():
         
         refresh_token: RefreshToken = RefreshToken.query.filter_by(token=refresh_token_value).one_or_none()
 
+        # Validate refresh token. Check existence before dereferencing it, otherwise
+        # an unknown token raises AttributeError instead of a clean error response.
+        if not refresh_token:
+            return invalid_token_data('Invalid or expired refresh_token')
+
         refresh_token_expiry_time = refresh_token.expiry_time.replace(tzinfo=timezone.utc)
-
-
-        # Validate refresh token
-        if not refresh_token or refresh_token_expiry_time < now_time:
-            # TODO: Check ss this the right reaction?
+        if refresh_token_expiry_time < now_time:
             return invalid_token_data('Invalid or expired refresh_token')
 
         # Validate the associated user and application
@@ -139,7 +140,10 @@ def token_endpoint():
     # Key pair from https://chatgpt.com/share/676128c4-ffdc-8002-85b9-0fdea65978d1
     private_key = application.rsa_private_key
     key_id = application.key_id
-    expires_in_minutes=3600
+    # Access/ID token lifetime. RFC 6749 §4.2.2 / RFC 6750 define expires_in in
+    # SECONDS, so this value is both the actual token expiry and the advertised
+    # expires_in — they must stay in the same unit. 3600s = 1 hour.
+    expires_in_seconds = 3600
 
     authentication = Authentication.query.filter(
         Authentication.subject == user.username,
@@ -153,7 +157,7 @@ def token_endpoint():
         authentication.audience = client_id
         authentication.not_before = now_time
         authentication.authentication_time = now_time
-        authentication.expiry_time = (timedelta(minutes=expires_in_minutes) + now_time)
+        authentication.expiry_time = (timedelta(seconds=expires_in_seconds) + now_time)
         authentication.scope = scope
         
         db.session.add(authentication)
@@ -198,7 +202,7 @@ def token_endpoint():
         # What time was this application's authentication session started?
         "iat": now_time.timestamp(),
         # When does this session expire?
-        "exp": (timedelta(minutes=expires_in_minutes)+now_time).timestamp(),
+        "exp": (timedelta(seconds=expires_in_seconds)+now_time).timestamp(),
     }
 
     # Add user claims based on requested scopes
@@ -222,7 +226,7 @@ def token_endpoint():
         "id_token": id_token,
         "access_token": access_token,
         "token_type": "Bearer",
-        "expires_in": expires_in_minutes
+        "expires_in": expires_in_seconds
     }
 
     if "offline_access" in scope.split():
