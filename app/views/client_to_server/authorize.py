@@ -137,8 +137,11 @@ def authorization_endpoint():
         db.session.add(authorization)
         db.session.commit()
     else:
-        # Update the nonce and PKCE params for the existing authorization to match the current request
+        # Update the scope, nonce and PKCE params for the existing authorization to match the current request
         updated = False
+        if scope and authorization.scope != scope:
+            authorization.scope = scope
+            updated = True
         if nonce and authorization.nonce != nonce:
             authorization.nonce = nonce
             updated = True

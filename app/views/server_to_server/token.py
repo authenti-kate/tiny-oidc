@@ -159,6 +159,13 @@ def token_endpoint():
         db.session.add(authentication)
         db.session.commit()
         debug(authentication.trace())
+    elif authentication.scope != scope:
+        # Refresh scope on a reused authentication so newly requested
+        # scopes (e.g. groups) are not dropped from the issued tokens.
+        authentication.scope = scope
+        db.session.add(authentication)
+        db.session.commit()
+        debug(authentication.trace())
 
     access_content = {
         "jti": hashlib.md5(str(f"{authentication.id}.{authentication.subject}.{authentication.authentication_time}").encode('utf-8')).hexdigest(),
