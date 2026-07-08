@@ -248,8 +248,9 @@ def token_endpoint():
         # What time was this application's authentication session started?
         "iat": authentication.authentication_time.timestamp(),
         "exp": authentication.expiry_time.timestamp(),
-        "scope": authentication.scope,
-        "kid": key_id
+        "scope": authentication.scope
+        # kid is carried in the JWS header (headers={"kid": ...}) per
+        # RFC 7515 §4.1.4, not in the claims.
     }
 
     debug(f'Access_content: {access_content}')

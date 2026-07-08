@@ -35,13 +35,14 @@ def introspection_endpoint():
     # active, return {"active": false} rather than an error.
     inactive = jsonify({"active": False})
 
+    # The signing key is identified by the JWS header `kid` (RFC 7515 §4.1.4).
     try:
-        first_pass = jwt.decode(bearer, algorithms=["RS256"], options={"verify_signature": False})
+        header = jwt.get_unverified_header(bearer)
     except jwt.PyJWTError:
         return inactive
 
     application: Application = Application.query.filter(
-        Application.key_id == first_pass.get('kid')
+        Application.key_id == header.get('kid')
     ).one_or_none()
     if application is None:
         return inactive

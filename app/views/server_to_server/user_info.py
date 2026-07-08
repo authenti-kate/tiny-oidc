@@ -20,13 +20,14 @@ def userinfo_endpoint():
 
     # Any decode/verification failure is an invalid_token (RFC 6750 §3.1),
     # returned as 401 with a WWW-Authenticate header rather than a 500.
+    # The signing key is identified by the JWS header `kid` (RFC 7515 §4.1.4).
     try:
-        first_pass = jwt.decode(bearer, algorithms=["RS256"], options={"verify_signature": False})
+        header = jwt.get_unverified_header(bearer)
     except jwt.PyJWTError:
         return bearer_error('invalid_token', 'Malformed access token', 401)
 
     application: Application = Application.query.filter(
-        Application.key_id == first_pass.get('kid')
+        Application.key_id == header.get('kid')
     ).one_or_none()
     if application is None:
         return bearer_error('invalid_token', 'Unknown signing key', 401)
