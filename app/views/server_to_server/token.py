@@ -13,6 +13,7 @@ from app.models.authentication import Authentication
 from app.models.authorization import Authorization
 from app.models.refreshtoken import RefreshToken
 from app.crypto import ct_equal
+from app.urls import external_url
 from app.views.server_to_server import (
     invalid_token_data,
     token_error,
@@ -215,7 +216,7 @@ def token_endpoint():
         "jti": hashlib.md5(str(f"{authentication.id}.{authentication.subject}.{authentication.authentication_time}").encode('utf-8')).hexdigest(),
         "sub": authentication.subject,
         "aud": client_id,
-        "iss": request.host_url.removesuffix('/') + url_for('views.index'),
+        "iss": external_url('views.index'),
         # What time was this application's authentication session started?
         "iat": authentication.authentication_time.timestamp(),
         "exp": authentication.expiry_time.timestamp(),
@@ -235,7 +236,7 @@ def token_endpoint():
     id_content = {
         "jti": hashlib.md5(str(f"{authentication.id}.{authentication.subject}.{authentication.authentication_time}").encode('utf-8')).hexdigest(),
         "aud": client_id,
-        "iss": request.host_url.removesuffix('/') + url_for('views.index').removesuffix('/'),
+        "iss": external_url('views.index'),
         # Time stuff
         # What time did the user sign into the OIDC?
         "auth_time": auth_time.timestamp(),

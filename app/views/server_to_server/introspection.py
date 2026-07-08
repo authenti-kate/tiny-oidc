@@ -7,6 +7,7 @@ from app.views import bp
 from app.models.application import Application
 from app.models.authentication import Authentication
 from app.crypto import ct_equal
+from app.urls import external_url
 from app.views.server_to_server import client_credentials, token_error
 
 @bp.route('/s2s/introspection', methods=['POST'])
@@ -67,7 +68,7 @@ def introspection_endpoint():
         "exp": authentication.expiry_time.timestamp(),
         "iat": authentication.authentication_time.timestamp(),
         "sub": authentication.subject,
-        "iss": request.host_url.removesuffix('/') + url_for('views.index'),
+        "iss": external_url('views.index'),
         "aud": authentication.audience,
         "nbf": authentication.not_before.timestamp(),
         "jti": hashlib.md5(str(f"{authentication.id}.{authentication.subject}.{authentication.authentication_time}").encode('utf-8')).hexdigest()
