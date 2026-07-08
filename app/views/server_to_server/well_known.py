@@ -72,7 +72,8 @@ def well_known():
                 # "client_secret_post", "client_secret_jwt", "private_key_jwt",
             ],
             "end_session_endpoint": host_url_for('views.logout'),
-            "request_parameter_supported": True,
+            # Request objects (JAR, OIDC Core §6) are not implemented.
+            "request_parameter_supported": False,
             #   "request_object_signing_alg_values_supported": [
             #     "HS256", "HS384", "HS512", "RS256", "RS384", "RS512", "ES256", "ES384", "ES512"
             #   ],
