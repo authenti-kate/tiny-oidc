@@ -1,4 +1,5 @@
 import os
+import hmac
 import jwt
 import hashlib
 import base64
@@ -12,7 +13,25 @@ from app.models.application import Application
 from app.models.authentication import Authentication
 from app.models.authorization import Authorization
 from app.models.refreshtoken import RefreshToken
-from app.views.server_to_server import invalid_token_data
+from app.views.server_to_server import invalid_token_data, token_error
+
+
+def _ct_equal(a, b):
+    """Constant-time string comparison that tolerates None and non-ASCII."""
+    return hmac.compare_digest((a or '').encode('utf-8'), (b or '').encode('utf-8'))
+
+
+def _client_credentials():
+    """Extract client credentials per RFC 6749 §2.3.1.
+
+    Supports client_secret_basic (HTTP Basic Authorization header) and
+    client_secret_post (request body). Returns (client_id, client_secret),
+    either of which may be None when absent.
+    """
+    auth = request.authorization
+    if auth is not None and (auth.type or '').lower() == 'basic':
+        return auth.username, auth.password
+    return request.form.get('client_id', None), request.form.get('client_secret', None)
 
 @bp.route('/s2s/token', methods=['POST'])
 def token_endpoint():
@@ -114,17 +133,20 @@ def token_endpoint():
             if not application:
                 return invalid_token_data('Application not acceptable')
 
-            if client_id is not None and application.client_id != client_id:
-                invalid_context.append('client_id')
-            if client_secret is not None and application.client_secret != client_secret:
-                invalid_context.append('client_secret')
-
-            # Error if not valid request
-            if len(invalid_context) > 0:
-                # TODO: What should be the correct response here?
-                debug(
-                    f'In /s2s/token - Invalid application context provided : {", ".join(invalid_context)}')
-                return invalid_token_data('Invalid application context provided')
+            # Authenticate the client the code was issued to (RFC 6749 §3.2.1 /
+            # §4.1.3). The authorization code is bound to
+            # authorization.application_client_id, so a confidential client MUST
+            # present matching credentials via client_secret_basic or
+            # client_secret_post. Without this, anyone holding a code could
+            # redeem it. Comparisons are constant-time to avoid a timing oracle.
+            auth_client_id, auth_client_secret = _client_credentials()
+            if not auth_client_id or not auth_client_secret:
+                debug('In /s2s/token - missing client authentication')
+                return token_error('invalid_client', 'Client authentication required', 401)
+            if not _ct_equal(auth_client_id, application.client_id) or \
+                    not _ct_equal(auth_client_secret, application.client_secret):
+                debug(f'In /s2s/token - client authentication failed for {auth_client_id}')
+                return token_error('invalid_client', 'Client authentication failed', 401)
 
             # Extend expiration for non-permanent applications
             if application.client_id != "client_id_12decaf34bad56" and application.expires_at is not None:

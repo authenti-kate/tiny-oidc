@@ -1,5 +1,24 @@
-from flask import Response
+from flask import Response, jsonify
 from app.log import debug
+
+
+def token_error(error, description=None, status=400):
+    """RFC 6749 §5.2 error response: JSON body {"error", "error_description"}.
+
+    Token-endpoint responses MUST set Cache-Control: no-store / Pragma: no-cache
+    (§5.1). A 401 additionally carries a WWW-Authenticate challenge (§5.2).
+    """
+    body = {"error": error}
+    if description:
+        body["error_description"] = description
+    resp = jsonify(body)
+    resp.status_code = status
+    resp.headers['Cache-Control'] = 'no-store'
+    resp.headers['Pragma'] = 'no-cache'
+    if status == 401:
+        resp.headers['WWW-Authenticate'] = 'Basic'
+    return resp
+
 
 def invalid_token_data(message):
     debug(f"400: {message}")
