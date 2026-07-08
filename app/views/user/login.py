@@ -66,20 +66,20 @@ def login():
         scope = getSessionData('scope')
         redirect_uri = getSessionData('redirect_uri')
         state = getSessionData('state')
-        if (
-            client_id is not None and response_type is not None and
-            scope is not None and redirect_uri is not None and state is not None
-        ):
-            return redirect(
-                url_for(
-                    'views.authorization_endpoint',
-                    client_id=client_id,
-                    response_type=response_type,
-                    scope=scope,
-                    redirect_uri=redirect_uri,
-                    state=state
-                )
+        # state is optional (RFC 6749 §4.1.1): resume the authorization request
+        # whenever the required parameters are present, passing state only when
+        # the client supplied it.
+        if client_id is not None and response_type is not None and \
+                scope is not None and redirect_uri is not None:
+            params = dict(
+                client_id=client_id,
+                response_type=response_type,
+                scope=scope,
+                redirect_uri=redirect_uri,
             )
+            if state is not None:
+                params['state'] = state
+            return redirect(url_for('views.authorization_endpoint', **params))
         else:
             return redirect(url_for('views.index'))
 

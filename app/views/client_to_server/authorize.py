@@ -64,8 +64,8 @@ def authorization_endpoint():
         # This is an OpenID Provider; the request MUST include openid
         # (OIDC Core §3.1.2.1).
         return authorize_error_redirect(redirect_uri, 'invalid_scope', 'openid scope is required', state)
-    if not state:
-        return authorize_error_redirect(redirect_uri, 'invalid_request', 'state is required', state)
+    # state is RECOMMENDED, not REQUIRED (RFC 6749 §4.1.1); it is echoed back
+    # only when the client supplied it.
 
     # PKCE (RFC 7636). Default a missing method to "plain" (§4.3); only S256
     # (RECOMMENDED) and plain are supported.
