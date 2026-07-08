@@ -1,3 +1,4 @@
+import secrets
 from flask import url_for, request, redirect
 from datetime import datetime, timezone
 from app.log import trace, info
@@ -5,7 +6,7 @@ from app.views import bp
 from app.models.user import User
 from app.log import debug
 from app.crypto import ct_equal
-from app.session import getSessionData, setSessionData, _mySession
+from app.session import getSessionData, setSessionData, rotateSession, _mySession
 
 @bp.route('/user/login', methods=['GET', 'POST'])
 def login():
@@ -30,6 +31,12 @@ def login():
 
     # Have you provided authentication credentials?
     if request.method == 'POST':
+        # CSRF protection: the submitted token must match the one issued with
+        # the login form (stored server-side in the session).
+        expected_csrf = getSessionData('csrf_token')
+        if not expected_csrf or not ct_equal(request.form.get('csrf_token', ''), expected_csrf):
+            trace('CSRF token mismatch on login', str(_mySession().key))
+            return redirect(url_for('views.login'))
         username = request.form['username']
         password = request.form['password']
         # Look up by username, then compare the password in constant time. This
@@ -42,6 +49,9 @@ def login():
             user = None
             signed_in = False
         if signed_in:
+            # Rotate the session key on privilege change (session-fixation
+            # defense) before recording the authenticated user.
+            rotateSession()
             setSessionData('user', user.username)
             setSessionData('sign_in', datetime.now(timezone.utc).timestamp())
             info(f'Valid sign in for {username}', str(_mySession().key))
@@ -74,6 +84,11 @@ def login():
             return redirect(url_for('views.index'))
 
     else:
+        # Issue a CSRF token for the login form (stored server-side).
+        csrf_token = getSessionData('csrf_token')
+        if not csrf_token:
+            csrf_token = secrets.token_urlsafe(32)
+            setSessionData('csrf_token', csrf_token)
         # Provide a (horrifically insecure) login screen
         all_users = User.query.all()
         content = """<!DOCTYPE html>
@@ -110,6 +125,7 @@ def login():
                     </td>
                     <td>
                         <form action="{url_for('views.login')}" method="post">
+                            <input type="hidden" name="csrf_token" value="{csrf_token}">
                             <input type="hidden" name="username" value="{username}">
                             <input type="hidden" name="password" value="{password}">
                             <button type="submit">Login as {username}</button>

@@ -28,6 +28,21 @@ def _mySession() -> Session:
     return my_session
 
 
+def rotateSession() -> Session:
+    """Issue a fresh session key, preserving the current session data.
+
+    Called after a successful login to mitigate session fixation: any session
+    identifier known before authentication is discarded.
+    """
+    my_session = _mySession()
+    new_session = Session(data=my_session.data)
+    db.session.add(new_session)
+    db.session.delete(my_session)
+    db.session.commit()
+    session['key'] = str(new_session.key)
+    return new_session
+
+
 def getSessionData(key, default=None):
     my_session = _mySession()
     all_data = json.loads(my_session.data)
