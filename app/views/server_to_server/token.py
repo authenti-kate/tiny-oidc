@@ -15,6 +15,7 @@ from app.models.authorization import Authorization
 from app.models.refreshtoken import RefreshToken
 from app.crypto import ct_equal
 from app.urls import external_url
+from app.times import numeric_date
 from app.views.server_to_server import (
     invalid_token_data,
     token_error,
@@ -129,8 +130,10 @@ def token_endpoint():
             db.session.commit()
             return token_error('invalid_grant', 'Authorization code has already been used', 400)
 
-        # Reject an expired code (outside the session window).
-        if authorization is not None and authorization.session_valid < now_time:
+        # Reject an expired code (outside the session window). session_valid is
+        # stored naive (UTC); make it tz-aware before comparing with now_time.
+        if authorization is not None and \
+                authorization.session_valid.replace(tzinfo=timezone.utc) < now_time:
             authorization = None
 
         if authorization:
@@ -246,8 +249,8 @@ def token_endpoint():
         "aud": client_id,
         "iss": external_url('views.index'),
         # What time was this application's authentication session started?
-        "iat": authentication.authentication_time.timestamp(),
-        "exp": authentication.expiry_time.timestamp(),
+        "iat": numeric_date(authentication.authentication_time),
+        "exp": numeric_date(authentication.expiry_time),
         "scope": authentication.scope
         # kid is carried in the JWS header (headers={"kid": ...}) per
         # RFC 7515 §4.1.4, not in the claims.
@@ -268,11 +271,11 @@ def token_endpoint():
         "iss": external_url('views.index'),
         # Time stuff
         # What time did the user sign into the OIDC?
-        "auth_time": auth_time.timestamp(),
+        "auth_time": numeric_date(auth_time),
         # What time was this application's authentication session started?
-        "iat": now_time.timestamp(),
+        "iat": numeric_date(now_time),
         # When does this session expire?
-        "exp": (timedelta(seconds=expires_in_seconds)+now_time).timestamp(),
+        "exp": numeric_date(timedelta(seconds=expires_in_seconds)+now_time),
     }
 
     # Add user claims based on requested scopes

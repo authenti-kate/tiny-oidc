@@ -1,6 +1,7 @@
 import jwt
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
+from app.times import numeric_date
 from flask import jsonify, url_for, request
 from app.log import debug
 from app.views import bp
@@ -55,8 +56,8 @@ def introspection_endpoint():
     authentication = Authentication.query.filter(
         Authentication.audience == token['aud'],
         Authentication.subject == token['sub'],
-        Authentication.authentication_time >= datetime.fromtimestamp(int(token['iat'])-1).replace(tzinfo=None),
-        Authentication.authentication_time <= datetime.fromtimestamp(int(token['iat'])+1).replace(tzinfo=None),
+        Authentication.authentication_time >= datetime.fromtimestamp(int(token['iat'])-1, tz=timezone.utc).replace(tzinfo=None),
+        Authentication.authentication_time <= datetime.fromtimestamp(int(token['iat'])+1, tz=timezone.utc).replace(tzinfo=None),
     ).all()
 
     if len(authentication) == 0:
@@ -66,12 +67,12 @@ def introspection_endpoint():
     reply = {
         "active": True,
         "scope": authentication.scope,
-        "exp": authentication.expiry_time.timestamp(),
-        "iat": authentication.authentication_time.timestamp(),
+        "exp": numeric_date(authentication.expiry_time),
+        "iat": numeric_date(authentication.authentication_time),
         "sub": authentication.subject,
         "iss": external_url('views.index'),
         "aud": authentication.audience,
-        "nbf": authentication.not_before.timestamp(),
+        "nbf": numeric_date(authentication.not_before),
         "jti": uuid.uuid4().hex
     }
     debug(f"Request: '/s2s/introspection' Reply: {reply}")
