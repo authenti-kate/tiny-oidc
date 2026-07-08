@@ -169,7 +169,14 @@ def token_endpoint():
             auth_time = authorization.authentication_start
         else:
             return invalid_token_data('Authorization expired')
-            
+
+    else:
+        # Any grant_type other than the two supported above (including a missing
+        # grant_type) must be rejected with unsupported_grant_type rather than
+        # falling through to an UnboundLocalError (RFC 6749 §5.2).
+        debug(f'In /s2s/token - unsupported grant_type: {grant_type}')
+        return token_error('unsupported_grant_type', f'Unsupported grant_type: {grant_type}', 400)
+
     # Key pair from https://chatgpt.com/share/676128c4-ffdc-8002-85b9-0fdea65978d1
     private_key = application.rsa_private_key
     key_id = application.key_id
