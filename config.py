@@ -6,7 +6,15 @@ class Config:
     FLASK_HOST = os.environ.get('FLASK_HOST', '::')
     FLASK_PORT = os.environ.get('FLASK_PORT', '8000')
     FLASK_DEBUG = bool(os.environ.get('FLASK_DEBUG', False))
+    # NB: this default is intentionally an obvious placeholder — set SECRET_KEY
+    # in the environment for any real deployment (kept default so the toy runs
+    # out of the box, consistent with its findable-credentials stance).
     SECRET_KEY = os.environ.get('SECRET_KEY', 'TotallyInsecureSecretKey_TotallyInsecureSecretKey!')
+    # Session cookie hardening. SECURE defaults off so plain-HTTP local testing
+    # works; enable it (and it is required) when served over HTTPS.
+    SESSION_COOKIE_HTTPONLY = True
+    SESSION_COOKIE_SAMESITE = os.environ.get('SESSION_COOKIE_SAMESITE', 'Lax')
+    SESSION_COOKIE_SECURE = os.environ.get('SESSION_COOKIE_SECURE', 'false').lower() in ('1', 'true', 'yes')
     SQLALCHEMY_DATABASE_URI = os.environ.get('DATABASE_URI') or 'sqlite:///' + os.path.join(basedir, 'app.db')
     SQLALCHEMY_TRACK_MODIFICATIONS = bool(os.environ.get('SQLALCHEMY_TRACK_MODIFICATIONS', False))
     SQLALCHEMY_ECHO = bool(os.environ.get('SQLALCHEMY_ECHO', False))
