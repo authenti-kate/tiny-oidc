@@ -1,4 +1,5 @@
 import base64
+from datetime import datetime, timezone
 from flask import jsonify, request
 from app.log import debug
 from app.views import bp
@@ -14,9 +15,18 @@ def keys_endpoint():
     bearer = request.authorization.token if (request.authorization is not None and request.authorization.token is not None) else "None"
     debug(f'GET: /s2s/keys bearer: {bearer} args: {data}')
 
+    now = datetime.now(timezone.utc)
     all_keys = Application.query.all()
     data = []
     for key in all_keys:
+        # Do not publish keys for applications that have expired.
+        if key.expires_at is not None:
+            expires_at = key.expires_at
+            if expires_at.tzinfo is None:
+                expires_at = expires_at.replace(tzinfo=timezone.utc)
+            if expires_at < now:
+                continue
+
         # Load the public key object
         public_key = serialization.load_pem_public_key(key.rsa_public_key)
         key_id = key.key_id
@@ -41,4 +51,6 @@ def keys_endpoint():
                 }
             )
     debug(f"Request: '/s2s/keys' Reply: {data}")
-    return jsonify({"keys": data})
+    response = jsonify({"keys": data})
+    response.headers['Cache-Control'] = 'public, max-age=3600'
+    return response
