@@ -1,5 +1,5 @@
 import jwt
-import hashlib
+import uuid
 from datetime import datetime
 from flask import jsonify, url_for, request
 from app.log import debug
@@ -71,7 +71,7 @@ def introspection_endpoint():
         "iss": external_url('views.index'),
         "aud": authentication.audience,
         "nbf": authentication.not_before.timestamp(),
-        "jti": hashlib.md5(str(f"{authentication.id}.{authentication.subject}.{authentication.authentication_time}").encode('utf-8')).hexdigest()
+        "jti": uuid.uuid4().hex
     }
     debug(f"Request: '/s2s/introspection' Reply: {reply}")
     return jsonify(reply)

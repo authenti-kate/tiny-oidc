@@ -1,4 +1,5 @@
 import os
+import uuid
 import jwt
 import hashlib
 import base64
@@ -213,7 +214,7 @@ def token_endpoint():
         debug(authentication.trace())
 
     access_content = {
-        "jti": hashlib.md5(str(f"{authentication.id}.{authentication.subject}.{authentication.authentication_time}").encode('utf-8')).hexdigest(),
+        "jti": uuid.uuid4().hex,
         "sub": authentication.subject,
         "aud": client_id,
         "iss": external_url('views.index'),
@@ -234,7 +235,7 @@ def token_endpoint():
     )
 
     id_content = {
-        "jti": hashlib.md5(str(f"{authentication.id}.{authentication.subject}.{authentication.authentication_time}").encode('utf-8')).hexdigest(),
+        "jti": uuid.uuid4().hex,
         "aud": client_id,
         "iss": external_url('views.index'),
         # Time stuff
@@ -263,7 +264,7 @@ def token_endpoint():
     )
 
     reply = {
-        "jti": hashlib.md5(str(f"{authentication.id}.{authentication.subject}.{authentication.authentication_time}").encode('utf-8')).hexdigest(),
+        "jti": uuid.uuid4().hex,
         "id_token": id_token,
         "access_token": access_token,
         "token_type": "Bearer",
