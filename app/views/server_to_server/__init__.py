@@ -1,5 +1,24 @@
-from flask import Response, jsonify
+import hmac
+from flask import Response, jsonify, request
 from app.log import debug
+
+
+def ct_equal(a, b):
+    """Constant-time string comparison that tolerates None and non-ASCII."""
+    return hmac.compare_digest((a or '').encode('utf-8'), (b or '').encode('utf-8'))
+
+
+def client_credentials():
+    """Extract client credentials per RFC 6749 §2.3.1.
+
+    Supports client_secret_basic (HTTP Basic Authorization header) and
+    client_secret_post (request body). Returns (client_id, client_secret),
+    either of which may be None when absent.
+    """
+    auth = request.authorization
+    if auth is not None and (auth.type or '').lower() == 'basic':
+        return auth.username, auth.password
+    return request.form.get('client_id', None), request.form.get('client_secret', None)
 
 
 def token_error(error, description=None, status=400):
