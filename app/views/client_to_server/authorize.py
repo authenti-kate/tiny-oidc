@@ -8,7 +8,7 @@ from app.extensions import db
 from app.models.application import Application
 from app.models.authorization import Authorization
 from app.session import getSessionData, setSessionData, deleteSessionData, _mySession
-from app.views.client_to_server import invalid_authorize_data
+from app.views.client_to_server import invalid_authorize_data, authorize_error_redirect
 
 
 @bp.route('/c2s/authorize')
@@ -18,48 +18,13 @@ def authorization_endpoint():
         data[key] = request.args.get(key)
     debug(f'GET: /c2s/authorize args: {data}')
 
+    # Phase 1 — validate client_id and redirect_uri. Per OIDC Core §3.1.2.6 /
+    # RFC 6749 §4.1.2.1 these MUST NOT be reported by redirecting (that could
+    # deliver an error or code to an attacker-chosen URI); show an error page.
     invalid_context = []
-
-    # Check inbound request contains required fields
-    response_type = request.args.get(
-        'response_type', getSessionData('response_type'))
-    if not response_type:
-        invalid_context.append('response_type')
-
-    scope = request.args.get('scope', getSessionData('scope'))
-    if not scope:
-        invalid_context.append('scope')
-    elif 'openid' not in scope.split():
-        # This is an OpenID Provider; an OIDC authorization request MUST include
-        # the openid scope (OIDC Core §3.1.2.1).
-        invalid_context.append('scope:openid_required')
-
-    state = request.args.get('state', getSessionData('state'))
-    if not state:
-        invalid_context.append('state')
-
-    nonce = request.args.get('nonce', getSessionData('nonce'))
-
-    # PKCE (RFC 7636) parameters
-    code_challenge = request.args.get('code_challenge', getSessionData('code_challenge'))
-    code_challenge_method = request.args.get('code_challenge_method', getSessionData('code_challenge_method'))
-    if code_challenge:
-        # RFC 7636 §4.3: when the method is omitted it defaults to "plain".
-        # Only S256 (RECOMMENDED, RFC 9700 §2.1.1) and plain are supported.
-        if not code_challenge_method:
-            code_challenge_method = 'plain'
-        elif code_challenge_method not in ('S256', 'plain'):
-            invalid_context.append('code_challenge_method')
-    elif current_app.config.get('PKCE_REQUIRED'):
-        invalid_context.append('code_challenge:required')
-
-    # These two are a bit more complex - but are still checking for required fields
-    redirect_uri = request.args.get(
-        'redirect_uri', getSessionData('redirect_uri'))
-    if not redirect_uri:
-        invalid_context.append('redirect_uri')
-
+    redirect_uri = request.args.get('redirect_uri', getSessionData('redirect_uri'))
     client_id = request.args.get('client_id', getSessionData('client_id'))
+    application = None
     if not client_id:
         invalid_context.append('client_id')
     else:
@@ -68,22 +33,49 @@ def authorization_endpoint():
         ).one_or_none()
         if not application:
             invalid_context.append('NON_EXISTANT:client_id')
-        elif not application.acceptable_redirect_uri == '*' and not re.match(application.acceptable_redirect_uri, redirect_uri):
-            invalid_context.append('NON_MATCHING:redirect_uri')
+    if not redirect_uri:
+        invalid_context.append('redirect_uri')
+    elif application is not None and not application.acceptable_redirect_uri == '*' \
+            and not re.match(application.acceptable_redirect_uri, redirect_uri):
+        invalid_context.append('NON_MATCHING:redirect_uri')
 
-    # Error if not valid request
     if len(invalid_context) > 0:
         debug(
             f'In /c2s/authorize - Invalid authorization context provided : {", ".join(invalid_context)}', str(_mySession().key))
         return invalid_authorize_data('Invalid authorization context provided')
 
-    # Only the authorization code flow is implemented; the endpoint always
-    # issues a `code`. Reject any other response_type with
-    # unsupported_response_type instead of silently doing code flow anyway
-    # (RFC 6749 §3.1.1, OIDC Core §3.1.2.6).
+    # Phase 2 — redirect_uri and client_id are now trusted, so any remaining
+    # validation failure is reported to the RP as an OAuth error redirect.
+    response_type = request.args.get('response_type', getSessionData('response_type'))
+    scope = request.args.get('scope', getSessionData('scope'))
+    state = request.args.get('state', getSessionData('state'))
+    nonce = request.args.get('nonce', getSessionData('nonce'))
+    code_challenge = request.args.get('code_challenge', getSessionData('code_challenge'))
+    code_challenge_method = request.args.get('code_challenge_method', getSessionData('code_challenge_method'))
+
+    if not response_type:
+        return authorize_error_redirect(redirect_uri, 'invalid_request', 'response_type is required', state)
+    # Only the authorization code flow is implemented (RFC 6749 §3.1.1).
     if response_type != 'code':
-        debug(f'In /c2s/authorize - unsupported response_type: {response_type}')
-        return invalid_authorize_data(f'unsupported_response_type: {response_type}')
+        return authorize_error_redirect(redirect_uri, 'unsupported_response_type', f'Unsupported response_type: {response_type}', state)
+    if not scope:
+        return authorize_error_redirect(redirect_uri, 'invalid_request', 'scope is required', state)
+    if 'openid' not in scope.split():
+        # This is an OpenID Provider; the request MUST include openid
+        # (OIDC Core §3.1.2.1).
+        return authorize_error_redirect(redirect_uri, 'invalid_scope', 'openid scope is required', state)
+    if not state:
+        return authorize_error_redirect(redirect_uri, 'invalid_request', 'state is required', state)
+
+    # PKCE (RFC 7636). Default a missing method to "plain" (§4.3); only S256
+    # (RECOMMENDED) and plain are supported.
+    if code_challenge:
+        if not code_challenge_method:
+            code_challenge_method = 'plain'
+        elif code_challenge_method not in ('S256', 'plain'):
+            return authorize_error_redirect(redirect_uri, 'invalid_request', 'Unsupported code_challenge_method', state)
+    elif current_app.config.get('PKCE_REQUIRED'):
+        return authorize_error_redirect(redirect_uri, 'invalid_request', 'PKCE code_challenge is required', state)
 
     # Check user session
     #
