@@ -24,3 +24,9 @@ class Config:
     OIDC_TRUSTED_HOSTS = [h.strip() for h in os.environ.get('OIDC_TRUSTED_HOSTS', '').split(',') if h.strip()]
     # Number of chained reverse proxies to trust for X-Forwarded-* headers.
     PROXY_COUNT = int(os.environ.get('PROXY_COUNT', '1'))
+
+    # Require PKCE (a code_challenge) on every authorization request. Defaults
+    # off so simple test flows still work; RFC 9700 §2.1.1 recommends enabling
+    # it (with S256) in production. Only S256 and plain are accepted regardless;
+    # S256 is preferred.
+    PKCE_REQUIRED = os.environ.get('PKCE_REQUIRED', 'false').lower() in ('1', 'true', 'yes')

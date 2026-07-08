@@ -139,13 +139,15 @@ def token_endpoint():
             if authorization.code_challenge:
                 if not code_verifier:
                     return invalid_token_data('Missing code_verifier for PKCE')
-                if authorization.code_challenge_method == 'S256':
+                # RFC 7636 §4.3: a stored challenge with no method means "plain".
+                method = authorization.code_challenge_method or 'plain'
+                if method == 'S256':
                     computed = base64.urlsafe_b64encode(
                         hashlib.sha256(code_verifier.encode('ascii')).digest()
                     ).rstrip(b'=').decode('ascii')
                     if not ct_equal(computed, authorization.code_challenge):
                         return invalid_token_data('Invalid code_verifier')
-                elif authorization.code_challenge_method == 'plain':
+                elif method == 'plain':
                     if not ct_equal(code_verifier, authorization.code_challenge):
                         return invalid_token_data('Invalid code_verifier')
                 else:

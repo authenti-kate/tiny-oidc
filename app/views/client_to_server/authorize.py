@@ -1,7 +1,7 @@
 import re
 import uuid
 from datetime import datetime, timezone, timedelta
-from flask import url_for, redirect, request
+from flask import url_for, redirect, request, current_app
 from app.log import debug
 from app.views import bp
 from app.extensions import db
@@ -43,6 +43,15 @@ def authorization_endpoint():
     # PKCE (RFC 7636) parameters
     code_challenge = request.args.get('code_challenge', getSessionData('code_challenge'))
     code_challenge_method = request.args.get('code_challenge_method', getSessionData('code_challenge_method'))
+    if code_challenge:
+        # RFC 7636 §4.3: when the method is omitted it defaults to "plain".
+        # Only S256 (RECOMMENDED, RFC 9700 §2.1.1) and plain are supported.
+        if not code_challenge_method:
+            code_challenge_method = 'plain'
+        elif code_challenge_method not in ('S256', 'plain'):
+            invalid_context.append('code_challenge_method')
+    elif current_app.config.get('PKCE_REQUIRED'):
+        invalid_context.append('code_challenge:required')
 
     # These two are a bit more complex - but are still checking for required fields
     redirect_uri = request.args.get(
