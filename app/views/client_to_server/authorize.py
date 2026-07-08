@@ -1,4 +1,5 @@
 import re
+import uuid
 from datetime import datetime, timezone, timedelta
 from flask import url_for, redirect, request
 from app.log import debug
@@ -145,21 +146,22 @@ def authorization_endpoint():
         db.session.add(authorization)
         db.session.commit()
     else:
+        # Reuse the SSO session but mint a FRESH single-use code for this
+        # authorization request. Each /authorize must yield a code that can be
+        # redeemed exactly once (RFC 6749 §4.1.2); issuing a new code also
+        # invalidates any prior unredeemed code for this session.
+        authorization.code = str(uuid.uuid4())
+        authorization.code_used = False
         # Update the scope, nonce and PKCE params for the existing authorization to match the current request
-        updated = False
         if scope and authorization.scope != scope:
             authorization.scope = scope
-            updated = True
         if nonce and authorization.nonce != nonce:
             authorization.nonce = nonce
-            updated = True
         if code_challenge and authorization.code_challenge != code_challenge:
             authorization.code_challenge = code_challenge
             authorization.code_challenge_method = code_challenge_method
-            updated = True
-        if updated:
-            db.session.commit()
-            auth_state = 'Updated '
+        db.session.commit()
+        auth_state = 'Updated '
     debug(auth_state + authorization.trace())
 
     # If we don't authenticate the user, we should, *strictly speaking*

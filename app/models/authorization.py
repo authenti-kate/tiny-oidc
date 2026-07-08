@@ -11,6 +11,10 @@ class Authorization(db.Model):
     session_start = db.Column(sa.DateTime, default=(datetime.now(timezone.utc)))
     session_valid = db.Column(sa.DateTime, default=(datetime.now(timezone.utc)+timedelta(minutes=15)))
     code = db.Column(sa.String(255))
+    # Authorization codes are single-use (RFC 6749 §4.1.2 / §10.5). Set once the
+    # code has been redeemed at the token endpoint; a second redemption is a
+    # replay and must be rejected.
+    code_used = db.Column(sa.Boolean, default=False)
     scope = db.Column(sa.String(255))
     nonce = db.Column(sa.String(255))
     code_challenge = db.Column(sa.String(255))
@@ -56,6 +60,7 @@ class Authorization(db.Model):
             self.code = code
         else:
             self.code = str(uuid.uuid4())
+        self.code_used = False
 
         if scope is not None:
             self.scope = scope
@@ -77,6 +82,7 @@ class Authorization(db.Model):
             'session_start': self.session_start.strftime("%Y-%m-%d %H:%M:%S"),
             'session_valid': self.session_valid.strftime("%Y-%m-%d %H:%M:%S"),
             'code': self.code,
+            'code_used': self.code_used,
             'scope': self.scope,
             'nonce': self.nonce,
             'code_challenge': self.code_challenge,

@@ -84,9 +84,29 @@ def token_endpoint():
 
         authorization: Authorization = Authorization.query.filter(
             Authorization.code == code,
-            Authorization.session_valid >= now_time,
             Authorization.session_start <= now_time
         ).one_or_none()
+
+        # Authorization code replay detection (RFC 6749 §4.1.2 / §10.5,
+        # RFC 9700 §2.1.1): a code may be redeemed only once. If a code that has
+        # already been used is presented again, revoke every token previously
+        # issued from this authorization and reject the request.
+        if authorization is not None and authorization.code_used:
+            debug('In /s2s/token - authorization code reuse detected; revoking issued tokens')
+            Authentication.query.filter_by(
+                subject=authorization.user,
+                audience=authorization.application_client_id
+            ).delete()
+            RefreshToken.query.filter_by(
+                subject=authorization.user,
+                audience=authorization.application_client_id
+            ).delete()
+            db.session.commit()
+            return token_error('invalid_grant', 'Authorization code has already been used', 400)
+
+        # Reject an expired code (outside the session window).
+        if authorization is not None and authorization.session_valid < now_time:
+            authorization = None
 
         if authorization:
             # PKCE validation (RFC 7636)
@@ -133,6 +153,11 @@ def token_endpoint():
                     not ct_equal(auth_client_secret, application.client_secret):
                 debug(f'In /s2s/token - client authentication failed for {auth_client_id}')
                 return token_error('invalid_client', 'Client authentication failed', 401)
+
+            # Consume the code now that the request is fully validated, so it
+            # cannot be redeemed a second time (single-use, RFC 6749 §4.1.2).
+            authorization.code_used = True
+            db.session.commit()
 
             # Extend expiration for non-permanent applications
             if application.client_id != "client_id_12decaf34bad56" and application.expires_at is not None:
