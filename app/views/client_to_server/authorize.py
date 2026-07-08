@@ -29,6 +29,10 @@ def authorization_endpoint():
     scope = request.args.get('scope', getSessionData('scope'))
     if not scope:
         invalid_context.append('scope')
+    elif 'openid' not in scope.split():
+        # This is an OpenID Provider; an OIDC authorization request MUST include
+        # the openid scope (OIDC Core §3.1.2.1).
+        invalid_context.append('scope:openid_required')
 
     state = request.args.get('state', getSessionData('state'))
     if not state:
