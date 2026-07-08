@@ -63,6 +63,14 @@ def authorization_endpoint():
             f'In /c2s/authorize - Invalid authorization context provided : {", ".join(invalid_context)}', str(_mySession().key))
         return invalid_authorize_data('Invalid authorization context provided')
 
+    # Only the authorization code flow is implemented; the endpoint always
+    # issues a `code`. Reject any other response_type with
+    # unsupported_response_type instead of silently doing code flow anyway
+    # (RFC 6749 §3.1.1, OIDC Core §3.1.2.6).
+    if response_type != 'code':
+        debug(f'In /c2s/authorize - unsupported response_type: {response_type}')
+        return invalid_authorize_data(f'unsupported_response_type: {response_type}')
+
     # Check user session
     #
     # Strictly speaking, at this point we should also verify whether

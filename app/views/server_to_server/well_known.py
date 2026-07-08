@@ -21,10 +21,9 @@ def well_known():
             'authorization_endpoint': host_url_for('views.authorization_endpoint'),
             'token_endpoint': host_url_for('views.token_endpoint'),
             "jwks_uri": host_url_for('views.keys_endpoint'),
+            # Only the authorization code flow is implemented.
             "response_types_supported": [
-                "code",
-                "id_token",
-                "id_token token"
+                "code"
             ],
             "subject_types_supported": ["public"],
             "id_token_signing_alg_values_supported": [
@@ -60,10 +59,10 @@ def well_known():
             #     "at_hash", "c_hash"
             ],
             # Optional Fields
-            "response_modes_supported": ["query", "fragment"],
+            "response_modes_supported": ["query"],
             "grant_types_supported": [
                 "authorization_code",
-                "implicit"
+                "refresh_token"
             ],
             "code_challenge_methods_supported": ["S256", "plain"],
             "token_endpoint_auth_methods_supported": [
