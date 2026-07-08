@@ -251,7 +251,10 @@ def token_endpoint():
         # What time was this application's authentication session started?
         "iat": numeric_date(authentication.authentication_time),
         "exp": numeric_date(authentication.expiry_time),
-        "scope": authentication.scope
+        "scope": authentication.scope,
+        # Distinguishes an access token from an ID token so protected resources
+        # can reject the wrong token type (see UserInfo).
+        "token_use": "access"
         # kid is carried in the JWS header (headers={"kid": ...}) per
         # RFC 7515 §4.1.4, not in the claims.
     }

@@ -4,6 +4,7 @@ from app.log import debug
 from app.views import bp
 from app.models.user import User
 from app.models.application import Application
+from app.urls import external_url
 from app.views.server_to_server import bearer_error
 
 @bp.route('/s2s/userinfo')
@@ -33,9 +34,14 @@ def userinfo_endpoint():
         return bearer_error('invalid_token', 'Unknown signing key', 401)
 
     try:
-        token = jwt.decode(bearer, audience=application.client_id, key=application.rsa_public_key, algorithms=["RS256"])
+        token = jwt.decode(bearer, audience=application.client_id, key=application.rsa_public_key,
+                           algorithms=["RS256"], issuer=external_url('views.index'))
     except jwt.PyJWTError:
         return bearer_error('invalid_token', 'Access token failed verification', 401)
+
+    # UserInfo must be presented with an access token, not an ID token.
+    if token.get('token_use') != 'access':
+        return bearer_error('invalid_token', 'Not an access token', 401)
 
     user: User = User.query.filter(User.username == token.get('sub')).one_or_none()
     if user is None:

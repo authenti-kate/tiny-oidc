@@ -49,7 +49,8 @@ def introspection_endpoint():
         return inactive
 
     try:
-        token = jwt.decode(bearer, audience=application.client_id, key=application.rsa_public_key, algorithms=["RS256"])
+        token = jwt.decode(bearer, audience=application.client_id, key=application.rsa_public_key,
+                           algorithms=["RS256"], issuer=external_url('views.index'))
     except jwt.PyJWTError:
         return inactive
 
