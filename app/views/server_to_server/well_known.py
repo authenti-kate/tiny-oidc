@@ -38,7 +38,7 @@ def well_known():
                 "email",
                 "profile",
                 "groups",
-                "offline"
+                "offline_access"
             ],
             "claims_supported": [
                 "iss",
