@@ -39,6 +39,29 @@ def token_error(error, description=None, status=400):
     return resp
 
 
+def bearer_error(error=None, description=None, status=401):
+    """RFC 6750 §3 protected-resource error.
+
+    Returns an HTTP 401/403 carrying a WWW-Authenticate: Bearer challenge. When
+    no credentials were supplied at all, `error` is None and a bare challenge is
+    emitted with no error code (RFC 6750 §3).
+    """
+    if error is None:
+        resp = Response(status=status)
+        resp.headers['WWW-Authenticate'] = 'Bearer'
+        return resp
+    challenge = f'Bearer error="{error}"'
+    if description:
+        challenge += f', error_description="{description}"'
+    body = {"error": error}
+    if description:
+        body["error_description"] = description
+    resp = jsonify(body)
+    resp.status_code = status
+    resp.headers['WWW-Authenticate'] = challenge
+    return resp
+
+
 def invalid_token_data(message):
     debug(f"400: {message}")
     # Note, this does not strictly comply with
