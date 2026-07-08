@@ -46,6 +46,14 @@ def token_endpoint():
         if not refresh_token:
             return invalid_token_data('Invalid or expired refresh_token')
 
+        # Replay detection (RFC 9700 §2.2.2): a consumed token presented again
+        # indicates the token (or its successor) leaked; revoke the whole family.
+        if refresh_token.consumed:
+            debug('In /s2s/token - refresh token replay detected; revoking token family')
+            RefreshToken.query.filter_by(family_id=refresh_token.family_id).delete()
+            db.session.commit()
+            return token_error('invalid_grant', 'Refresh token has already been used', 400)
+
         refresh_token_expiry_time = refresh_token.expiry_time.replace(tzinfo=timezone.utc)
         if refresh_token_expiry_time < now_time:
             return invalid_token_data('Invalid or expired refresh_token')
@@ -58,6 +66,16 @@ def token_endpoint():
             # TODO: Check What to do if the application or user are no longer valid?
             return invalid_token_data('Invalid user or application')
 
+        # Authenticate the client on the refresh grant too (RFC 6749 §6 / §3.2.1);
+        # C2 covered the code exchange, but a refresh must not rotate a token
+        # family without proving which client is presenting it.
+        auth_client_id, auth_client_secret = client_credentials()
+        if not auth_client_id or not auth_client_secret:
+            return token_error('invalid_client', 'Client authentication required', 401)
+        if not ct_equal(auth_client_id, application.client_id) or \
+                not ct_equal(auth_client_secret, application.client_secret):
+            return token_error('invalid_client', 'Client authentication failed', 401)
+
         # Extend expiration for non-permanent applications
         if application.client_id != "client_id_12decaf34bad56" and application.expires_at is not None:
             application.expires_at = datetime.now(timezone.utc) + timedelta(days=7)
@@ -68,6 +86,11 @@ def token_endpoint():
         client_secret = application.client_secret
         scope = refresh_token.scope
         auth_time = refresh_token.auth_time
+        # Rotate: consume the presented token now; a replacement in the same
+        # family is issued below (RFC 9700 §2.2.2).
+        refresh_family = refresh_token.family_id
+        refresh_token.consumed = True
+        db.session.commit()
 
     elif grant_type == 'authorization_code':
         # Check inbound request contains required fields
@@ -169,6 +192,8 @@ def token_endpoint():
 
             scope = authorization.scope
             auth_time = authorization.authentication_start
+            # A fresh authorization starts a new refresh-token family.
+            refresh_family = uuid.uuid4().hex
         else:
             return invalid_token_data('Authorization expired')
 
@@ -272,21 +297,23 @@ def token_endpoint():
     }
 
     if "offline_access" in scope.split():
-        refresh_token = hashlib.sha256(os.urandom(32)).hexdigest()
+        new_refresh_token = hashlib.sha256(os.urandom(32)).hexdigest()
 
-        # Store the refresh token in the database
+        # Store the (rotated) refresh token in the database, in the same family
+        # as the token that produced this request.
         refresh_entry = RefreshToken(
-            token=refresh_token,
+            token=new_refresh_token,
             subject=user.username,
             audience=client_id,
             scope=scope,
             auth_time=auth_time,
             issued_at=now_time,
-            expiry_time=(timedelta(days=30) + now_time)  # Refresh token valid for 30 days
+            expiry_time=(timedelta(days=30) + now_time),  # Refresh token valid for 30 days
+            family_id=refresh_family
         )
         db.session.add(refresh_entry)
         db.session.commit()
-        reply["refresh_token"] = refresh_token  # Add it to the response
+        reply["refresh_token"] = new_refresh_token  # Add it to the response
 
     debug(f"Request: '/s2s/token' Reply: {reply}")
     return jsonify(reply)
