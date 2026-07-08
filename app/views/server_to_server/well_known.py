@@ -1,11 +1,12 @@
 from app.log import debug
 from app.views import bp
+from app.urls import external_url
 from flask import jsonify, url_for, request
 
 def host_url_for(key):
-    host_url = request.host_url.removesuffix('/')
-    fragment = url_for(key).removesuffix('/')
-    return host_url + fragment
+    # Derived from the configured issuer (OIDC_ISSUER) / trusted host rather
+    # than the raw request Host header — see app.urls.base_url.
+    return external_url(key)
 
 @bp.route('/.well-known/openid-configuration')
 def well_known():
