@@ -20,6 +20,18 @@ def authorize_error_redirect(redirect_uri, error, description=None, state=None):
     return redirect(urlunsplit((parts.scheme, parts.netloc, parts.path, query, parts.fragment)))
 
 
+def authorize_success_redirect(redirect_uri, code, state=None):
+    """Redirect back to the RP with the authorization code (RFC 6749 §4.1.2),
+    appending to any existing query string rather than assuming there is none.
+    """
+    params = {'code': code}
+    if state:
+        params['state'] = state
+    parts = urlsplit(redirect_uri)
+    query = parts.query + ('&' if parts.query else '') + urlencode(params)
+    return redirect(urlunsplit((parts.scheme, parts.netloc, parts.path, query, parts.fragment)))
+
+
 def invalid_authorize_data(message):
     # Note, this does not strictly comply with
     # https://openid.net/specs/openid-connect-core-1_0.html#AuthError or

@@ -8,7 +8,7 @@ from app.extensions import db
 from app.models.application import Application
 from app.models.authorization import Authorization
 from app.session import getSessionData, setSessionData, deleteSessionData, _mySession
-from app.views.client_to_server import invalid_authorize_data, authorize_error_redirect
+from app.views.client_to_server import invalid_authorize_data, authorize_error_redirect, authorize_success_redirect
 
 
 @bp.route('/c2s/authorize')
@@ -173,4 +173,4 @@ def authorization_endpoint():
     # return an error to the RP. We don't do this!
     # See this link for details of how it *should* be implemented!
     # https://openid.net/specs/openid-connect-core-1_0.html#AuthError
-    return redirect(f'{redirect_uri}?code={authorization.code}&state={state}')
+    return authorize_success_redirect(redirect_uri, authorization.code, state)
