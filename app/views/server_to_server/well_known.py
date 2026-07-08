@@ -66,10 +66,12 @@ def well_known():
                 "refresh_token"
             ],
             "code_challenge_methods_supported": ["S256", "plain"],
+            # The token endpoint requires client authentication (see C2) and
+            # accepts credentials via HTTP Basic or the request body.
             "token_endpoint_auth_methods_supported": [
                 "client_secret_basic",
-                "none"
-                # "client_secret_post", "client_secret_jwt", "private_key_jwt",
+                "client_secret_post"
+                # "client_secret_jwt", "private_key_jwt" are not implemented.
             ],
             "end_session_endpoint": host_url_for('views.logout'),
             # Request objects (JAR, OIDC Core §6) are not implemented.
