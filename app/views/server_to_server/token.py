@@ -12,10 +12,10 @@ from app.models.application import Application
 from app.models.authentication import Authentication
 from app.models.authorization import Authorization
 from app.models.refreshtoken import RefreshToken
+from app.crypto import ct_equal
 from app.views.server_to_server import (
     invalid_token_data,
     token_error,
-    ct_equal,
     client_credentials,
 )
 
@@ -118,10 +118,10 @@ def token_endpoint():
                     computed = base64.urlsafe_b64encode(
                         hashlib.sha256(code_verifier.encode('ascii')).digest()
                     ).rstrip(b'=').decode('ascii')
-                    if computed != authorization.code_challenge:
+                    if not ct_equal(computed, authorization.code_challenge):
                         return invalid_token_data('Invalid code_verifier')
                 elif authorization.code_challenge_method == 'plain':
-                    if code_verifier != authorization.code_challenge:
+                    if not ct_equal(code_verifier, authorization.code_challenge):
                         return invalid_token_data('Invalid code_verifier')
                 else:
                     return invalid_token_data('Unsupported code_challenge_method')

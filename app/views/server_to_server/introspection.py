@@ -6,7 +6,8 @@ from app.log import debug
 from app.views import bp
 from app.models.application import Application
 from app.models.authentication import Authentication
-from app.views.server_to_server import client_credentials, ct_equal, token_error
+from app.crypto import ct_equal
+from app.views.server_to_server import client_credentials, token_error
 
 @bp.route('/s2s/introspection', methods=['POST'])
 def introspection_endpoint():

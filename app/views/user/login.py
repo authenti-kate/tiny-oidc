@@ -4,6 +4,7 @@ from app.log import trace, info
 from app.views import bp
 from app.models.user import User
 from app.log import debug
+from app.crypto import ct_equal
 from app.session import getSessionData, setSessionData, _mySession
 
 @bp.route('/user/login', methods=['GET', 'POST'])
@@ -31,9 +32,15 @@ def login():
     if request.method == 'POST':
         username = request.form['username']
         password = request.form['password']
-        user = User.query.filter(
-            User.username == username, User.password == password).one()
-        signed_in = user is not None
+        # Look up by username, then compare the password in constant time. This
+        # avoids leaking matching-prefix length via comparison timing (and, as a
+        # side effect, no longer raises when the username is unknown).
+        user = User.query.filter(User.username == username).one_or_none()
+        if user is not None and ct_equal(password, user.password):
+            signed_in = True
+        else:
+            user = None
+            signed_in = False
         if signed_in:
             setSessionData('user', user.username)
             setSessionData('sign_in', datetime.now(timezone.utc).timestamp())

@@ -1,11 +1,5 @@
-import hmac
 from flask import Response, jsonify, request
 from app.log import debug
-
-
-def ct_equal(a, b):
-    """Constant-time string comparison that tolerates None and non-ASCII."""
-    return hmac.compare_digest((a or '').encode('utf-8'), (b or '').encode('utf-8'))
 
 
 def client_credentials():
