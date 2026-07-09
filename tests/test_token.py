@@ -2,8 +2,6 @@
 import base64
 from urllib.parse import quote
 
-import pytest
-
 from helpers import (
     CLIENT_ID, CLIENT_SECRET, obtain_code, exchange_code, pkce_pair,
 )
@@ -146,16 +144,13 @@ def test_client_secret_basic_accepts_raw_credentials(client):
     assert resp.status_code == 200
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="RFC 6749 §2.3.1 requires the client_id and client_secret to be "
-           "form-urlencoded before base64 encoding; client_credentials() never "
-           "urldecodes them, so a strictly conformant client is rejected "
-           "whenever the secret contains reserved characters (the seeded "
-           "secret contains '+' and '='). Remove this marker once "
-           "app/views/server_to_server/__init__.py unquotes both parts.",
-)
 def test_client_secret_basic_accepts_urlencoded_credentials(client):
+    """RFC 6749 §2.3.1: credentials are form-urlencoded before base64 encoding.
+
+    The seeded secret contains '+' and '=', so a strictly conformant client
+    sends something different on the wire from the raw form above. Both must
+    authenticate.
+    """
     verifier, challenge = pkce_pair()
     code, _ = obtain_code(client, challenge=challenge)
     resp = _basic_exchange(

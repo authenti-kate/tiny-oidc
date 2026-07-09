@@ -81,10 +81,9 @@ def create_rp(
         conf = discover()
         kwargs = {"data": dict(data), "timeout": 10}
         if client_auth == "basic":
-            # NB: requests sends the raw client_id:client_secret base64-encoded.
-            # RFC 6749 §2.3.1 technically requires form-urlencoding each part
-            # first; tiny-oidc does not urldecode, so the two only agree for
-            # secrets without reserved characters. See test_client_auth.py.
+            # requests sends the raw client_id:client_secret base64-encoded,
+            # rather than form-urlencoding each part first as RFC 6749 §2.3.1
+            # requires. The provider accepts both (see client_credentials).
             kwargs["auth"] = HTTPBasicAuth(client_id, client_secret)
             kwargs["data"]["client_id"] = client_id
         elif client_auth == "post":

@@ -1,3 +1,5 @@
+from urllib.parse import unquote
+
 from flask import Response, jsonify, request
 
 
@@ -7,10 +9,19 @@ def client_credentials():
     Supports client_secret_basic (HTTP Basic Authorization header) and
     client_secret_post (request body). Returns (client_id, client_secret),
     either of which may be None when absent.
+
+    §2.3.1 requires a Basic-auth client to apply the application/x-www-form-
+    urlencoded encoding algorithm to the client_id and client_secret before
+    base64-encoding them, so they must be decoded here. Many clients (including
+    requests' HTTPBasicAuth) send the values raw instead; unquoting is a no-op
+    for those, so both forms are accepted.
+
+    Caveat: a secret containing a literal '%' followed by two hex digits is
+    ambiguous between the two forms and will be decoded. Avoid '%' in secrets.
     """
     auth = request.authorization
     if auth is not None and (auth.type or '').lower() == 'basic':
-        return auth.username, auth.password
+        return unquote(auth.username or ''), unquote(auth.password or '')
     return request.form.get('client_id', None), request.form.get('client_secret', None)
 
 
