@@ -90,6 +90,47 @@ def test_refresh_requires_client_auth(client):
     assert _refresh(client, rt, secret=None).status_code == 401
 
 
+def test_error_responses_are_json_with_an_error_code(client):
+    """RFC 6749 §5.2: errors are a JSON object carrying an `error` code."""
+    cases = [
+        # (form data, expected error code)
+        ({"grant_type": "authorization_code", "client_id": CLIENT_ID,
+          "client_secret": CLIENT_SECRET}, "invalid_request"),
+        ({"grant_type": "authorization_code", "code": "no-such-code",
+          "client_id": CLIENT_ID, "client_secret": CLIENT_SECRET}, "invalid_grant"),
+        ({"grant_type": "refresh_token", "client_id": CLIENT_ID,
+          "client_secret": CLIENT_SECRET}, "invalid_request"),
+        ({"grant_type": "refresh_token", "refresh_token": "no-such-token",
+          "client_id": CLIENT_ID, "client_secret": CLIENT_SECRET}, "invalid_grant"),
+    ]
+    for data, expected in cases:
+        resp = client.post("/s2s/token", data=data)
+        assert resp.status_code == 400, data
+        assert resp.mimetype == "application/json", data
+        assert resp.get_json()["error"] == expected, data
+
+
+def test_pkce_failure_is_invalid_grant_json(client):
+    """RFC 7636 §4.6 reports a bad verifier through the §5.2 error response."""
+    _, challenge = pkce_pair()
+    code, _ = obtain_code(client, challenge=challenge)
+    resp = exchange_code(client, code, verifier="b" * 64)
+    assert resp.status_code == 400
+    assert resp.get_json()["error"] == "invalid_grant"
+
+
+def test_token_responses_are_not_cacheable(client):
+    """RFC 6749 §5.1/§5.2: both success and error responses set no-store."""
+    verifier, challenge = pkce_pair()
+    code, _ = obtain_code(client, challenge=challenge)
+    success = exchange_code(client, code, verifier=verifier)
+    assert success.status_code == 200
+    assert success.headers["Cache-Control"] == "no-store"
+
+    failure = client.post("/s2s/token", data={"grant_type": "password"})
+    assert failure.headers["Cache-Control"] == "no-store"
+
+
 def _basic_exchange(client, code, verifier, client_id, client_secret):
     header = base64.b64encode(f"{client_id}:{client_secret}".encode()).decode()
     return client.post("/s2s/token", data={
