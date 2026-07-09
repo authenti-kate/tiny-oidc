@@ -3,6 +3,7 @@
 **/.dockerignore
 **/.env
 **/.git
+**/.github
 **/.gitignore
 **/.project
 **/.settings
@@ -24,3 +25,16 @@
 **/values.dev.yaml
 LICENSE
 README.md
+
+# The SQLite database is created on first boot. Copying a developer's local copy
+# into the image would bake in a stale schema: db.create_all() creates missing
+# tables but never ALTERs an existing one, so a database made before the current
+# models would be silently missing columns and the app would fail at runtime.
+**/*.db
+
+# Test-only material. The image runs the provider; it does not run the suite.
+tests
+**/.pytest_cache
+
+# Not part of the application.
+LOGS FOR BLOG
