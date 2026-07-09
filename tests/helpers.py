@@ -50,7 +50,9 @@ def obtain_code(client, scope="openid profile groups offline_access",
     return parse_qs(urlsplit(location).query)["code"][0], location
 
 
-def exchange_code(client, code, verifier=None, client_secret=CLIENT_SECRET):
+def exchange_code(client, code, verifier=None, client_secret=CLIENT_SECRET,
+                  redirect_uri=REDIRECT_URI):
+    """Redeem an authorization code. Pass redirect_uri=None to omit it."""
     data = {
         "grant_type": "authorization_code",
         "code": code,
@@ -60,4 +62,7 @@ def exchange_code(client, code, verifier=None, client_secret=CLIENT_SECRET):
         data["client_secret"] = client_secret
     if verifier is not None:
         data["code_verifier"] = verifier
+    # RFC 6749 §4.1.3: identical to the value in the authorization request.
+    if redirect_uri is not None:
+        data["redirect_uri"] = redirect_uri
     return client.post("/s2s/token", data=data)

@@ -144,6 +144,19 @@ def token_endpoint():
             authorization = None
 
         if authorization:
+            # RFC 6749 §4.1.3: when the authorization request carried a
+            # redirect_uri, the token request MUST carry an identical value.
+            # The code alone does not record where it was delivered, so without
+            # this a code obtained at one redirect target can be redeemed as
+            # though it had been obtained at another (§10.6, code injection).
+            if authorization.redirect_uri:
+                presented_redirect_uri = request.form.get('redirect_uri', None)
+                if not presented_redirect_uri:
+                    return token_error('invalid_request', 'Missing redirect_uri', 400)
+                if presented_redirect_uri != authorization.redirect_uri:
+                    debug('In /s2s/token - redirect_uri does not match the authorization request')
+                    return token_error('invalid_grant', 'redirect_uri does not match the authorization request', 400)
+
             # PKCE validation (RFC 7636)
             # RFC 7636 §4.6: a failed verifier check is reported using the
             # RFC 6749 §5.2 error response, with the code invalid_grant.

@@ -160,6 +160,7 @@ def authorization_endpoint():
             session_start=now_utc,
             session_valid=now_utc + session_lifetime,
             code_expires_at=now_utc + code_lifetime,
+            redirect_uri=redirect_uri,
             nonce=nonce,
             code_challenge=code_challenge,
             code_challenge_method=code_challenge_method
@@ -187,6 +188,7 @@ def authorization_endpoint():
         # puts a stale nonce in the ID token.
         authorization.scope = scope
         authorization.nonce = nonce
+        authorization.redirect_uri = redirect_uri
         authorization.code_challenge = code_challenge
         authorization.code_challenge_method = code_challenge_method
         db.session.commit()
