@@ -30,6 +30,19 @@ def test_discovery_advertises_only_implemented_behaviour(client):
     assert "create" not in doc["prompt_values_supported"]
 
 
+def test_advertised_prompts_match_what_authorize_enforces(client):
+    """The discovery document and the authorization endpoint read one constant.
+
+    An advertised-but-unhonoured value lies to every client that reads the
+    metadata; an honoured-but-unadvertised one is unreachable to a client that
+    checks first.
+    """
+    from app.prompts import SUPPORTED_PROMPTS
+
+    doc = client.get("/.well-known/openid-configuration").get_json()
+    assert doc["prompt_values_supported"] == list(SUPPORTED_PROMPTS)
+
+
 def test_fixed_issuer_beats_host_header(app):
     app.config["OIDC_ISSUER"] = "https://oidc.example.com"
     doc = app.test_client().get(

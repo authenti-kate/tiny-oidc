@@ -8,7 +8,8 @@ This toy OIDC server is designed to provide a minimal OIDC server to develop and
 * PKCE (RFC 7636) with S256 and plain challenge methods
 * Nonce validation for ID tokens
 * `prompt` (`none`, `login`, `consent`, `select_account`) and `max_age`, with a
-  very basic all-or-nothing consent screen that is never remembered
+  very basic all-or-nothing consent screen that is never remembered.
+  `prompt=create`, and any other unadvertised value, returns an HTTP 400 page
 * Refresh token support (via `offline_access` scope)
 * OIDC Discovery (`.well-known/openid-configuration`)
 * JWKS endpoint for token verification

@@ -8,7 +8,13 @@ from app.extensions import db
 from app.models.application import Application
 from app.models.authorization import Authorization
 from app.session import getSessionData, setSessionData, deleteSessionData, _mySession
-from app.views.client_to_server import invalid_authorize_data, authorize_error_redirect, authorize_success_redirect
+from app.prompts import SUPPORTED_PROMPTS
+from app.views.client_to_server import (
+    invalid_authorize_data,
+    authorize_error_redirect,
+    authorize_success_redirect,
+    unsupported_prompt,
+)
 
 
 @bp.route('/c2s/authorize')
@@ -70,6 +76,13 @@ def authorization_endpoint():
         # This is an OpenID Provider; the request MUST include openid
         # (OIDC Core §3.1.2.1).
         return authorize_error_redirect(redirect_uri, 'invalid_scope', 'openid scope is required', state)
+    # A prompt value we do not advertise (notably "create") gets a direct 400
+    # rather than an error redirect — see unsupported_prompt(). Checked first,
+    # so an unsupported value is never silently ignored.
+    unsupported = [p for p in prompts if p not in SUPPORTED_PROMPTS]
+    if unsupported:
+        debug(f'In /c2s/authorize - unsupported prompt value(s): {unsupported}', str(_mySession().key))
+        return unsupported_prompt(unsupported)
     # OIDC Core §3.1.2.1: "none" must not be combined with any other prompt
     # value, since the two demands are contradictory.
     if 'none' in prompts and len(prompts) > 1:

@@ -80,6 +80,43 @@ def test_prompt_none_combined_with_other_values_is_invalid_request(client):
     assert _error(resp.headers["Location"]) == "invalid_request"
 
 
+def test_prompt_create_explains_that_registration_is_unsupported(client):
+    """Initiating User Registration via OIDC §4: HTTP 400, invalid_request.
+
+    A direct response, not an error redirect: the user is standing in front of
+    the browser being told the thing they asked for cannot happen here.
+    """
+    resp = _authorize(client, prompt="create")
+    assert resp.status_code == 400
+    assert "Location" not in resp.headers
+
+    body = resp.get_data(as_text=True)
+    assert "You were requested to create an account" in body
+    assert "not supported here" in body
+    assert "invalid_request" in body
+
+
+def test_prompt_create_is_rejected_even_when_combined(client):
+    resp = _authorize(client, prompt="login%20create")
+    assert resp.status_code == 400
+    assert "You were requested to create an account" in resp.get_data(as_text=True)
+
+
+def test_unknown_prompt_value_is_rejected(client):
+    """An advertised-only contract: anything outside prompt_values_supported."""
+    resp = _authorize(client, prompt="teleport")
+    assert resp.status_code == 400
+    assert "Unsupported prompt value(s): teleport" in resp.get_data(as_text=True)
+
+
+def test_unsupported_prompt_value_is_escaped(client):
+    """The prompt value is client-supplied and rendered back."""
+    resp = _authorize(client, prompt="%3Cscript%3Ealert(1)%3C/script%3E")
+    body = resp.get_data(as_text=True)
+    assert "<script>alert(1)</script>" not in body
+    assert "&lt;script&gt;" in body
+
+
 def _code_from(resp):
     return parse_qs(urlsplit(resp.headers["Location"]).query)["code"][0]
 

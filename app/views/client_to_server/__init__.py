@@ -1,5 +1,8 @@
 from urllib.parse import urlencode, urlsplit, urlunsplit
 from flask import Response, redirect
+from markupsafe import escape
+
+from app.prompts import SUPPORTED_PROMPTS
 
 
 def authorize_error_redirect(redirect_uri, error, description=None, state=None):
@@ -56,6 +59,46 @@ def invalid_authorize_data(message):
         <h2 color="red">BE WARNED, THIS SERVER IS NOT SECURE AND IS USED FOR POC TESTING ONLY</h2>
         <hr>
         <p>{message}</p>
+    </body>
+</html>""", status=400)
+
+
+def unsupported_prompt(values):
+    """Reject prompt values this provider does not support.
+
+    "Initiating User Registration via OpenID Connect 1.0" §4: an OP receiving a
+    prompt value it does not support (i.e. one not declared in
+    prompt_values_supported) SHOULD respond with HTTP 400 and an error value of
+    invalid_request. Note that this is a direct response, NOT an error redirect
+    back to the RP the way OIDC Core §3.1.2.6 handles other authorization
+    errors — the user is standing in front of the browser being told something
+    they asked for cannot happen here.
+
+    `create` gets its own wording: it is a real, specified prompt value that a
+    client may reasonably ask for, and "account registration is not available"
+    is more useful than "that is not a prompt value".
+    """
+    if 'create' in values:
+        message = ("You were requested to create an account, but that's not "
+                   "supported here. This is a toy provider with a fixed set of "
+                   "test accounts, so there is nothing to register.")
+    else:
+        rejected = ', '.join(escape(v) for v in values)
+        message = (f"Unsupported prompt value(s): {rejected}. "
+                   f"This provider supports: {', '.join(SUPPORTED_PROMPTS)}.")
+
+    return Response(f"""
+<html>
+    <head>
+        <title>Tiny OIDC Server - Unsupported prompt</title>
+    </head>
+    <body>
+        <h1>Tiny OIDC Server - Unsupported prompt</h1>
+        <hr>
+        <h2 color="red">BE WARNED, THIS SERVER IS NOT SECURE AND IS USED FOR POC TESTING ONLY</h2>
+        <hr>
+        <p>{message}</p>
+        <p><code>error=invalid_request</code></p>
     </body>
 </html>""", status=400)
 

@@ -146,6 +146,17 @@ def test_prompt_consent_rejected_returns_access_denied(rp):
     assert state["authenticated"] is False
 
 
+def test_prompt_create_shows_an_explanation_page(rp):
+    """The user lands on the provider and is told registration is unavailable."""
+    rp.start_login(prompt="create")
+
+    # No redirect back to the RP: the browser stays on the provider.
+    rp.page.wait_for_url(f"{rp.idp_url}/c2s/authorize**")
+    body = rp.page.text_content("body")
+    assert "You were requested to create an account" in body
+    assert "not supported here" in body
+
+
 def test_unknown_client_shows_an_error_without_redirecting(rp):
     """C1/M8: an unregistered client_id must not be redirected anywhere."""
     from urllib.parse import urlencode
