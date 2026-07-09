@@ -1,4 +1,9 @@
 """Token endpoint conformance (RFC 6749 §4.1.3/§5.2/§6, RFC 7636, RFC 9700)."""
+import base64
+from urllib.parse import quote
+
+import pytest
+
 from helpers import (
     CLIENT_ID, CLIENT_SECRET, obtain_code, exchange_code, pkce_pair,
 )
@@ -83,3 +88,37 @@ def test_refresh_requires_client_auth(client):
     code, _ = obtain_code(client, challenge=challenge)
     rt = exchange_code(client, code, verifier=verifier).get_json()["refresh_token"]
     assert _refresh(client, rt, secret=None).status_code == 401
+
+
+def _basic_exchange(client, code, verifier, client_id, client_secret):
+    header = base64.b64encode(f"{client_id}:{client_secret}".encode()).decode()
+    return client.post("/s2s/token", data={
+        "grant_type": "authorization_code", "code": code, "code_verifier": verifier,
+    }, headers={"Authorization": f"Basic {header}"})
+
+
+def test_client_secret_basic_accepts_raw_credentials(client):
+    """The form used by requests, and by most clients in practice."""
+    verifier, challenge = pkce_pair()
+    code, _ = obtain_code(client, challenge=challenge)
+    resp = _basic_exchange(client, code, verifier, CLIENT_ID, CLIENT_SECRET)
+    assert resp.status_code == 200
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason="RFC 6749 §2.3.1 requires the client_id and client_secret to be "
+           "form-urlencoded before base64 encoding; client_credentials() never "
+           "urldecodes them, so a strictly conformant client is rejected "
+           "whenever the secret contains reserved characters (the seeded "
+           "secret contains '+' and '='). Remove this marker once "
+           "app/views/server_to_server/__init__.py unquotes both parts.",
+)
+def test_client_secret_basic_accepts_urlencoded_credentials(client):
+    verifier, challenge = pkce_pair()
+    code, _ = obtain_code(client, challenge=challenge)
+    resp = _basic_exchange(
+        client, code, verifier,
+        quote(CLIENT_ID, safe=""), quote(CLIENT_SECRET, safe=""),
+    )
+    assert resp.status_code == 200
