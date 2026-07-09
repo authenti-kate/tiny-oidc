@@ -52,6 +52,31 @@ def test_valid_request_without_state_proceeds_to_login(client):
     assert resp.headers["Location"].endswith("/user/login")
 
 
+def test_prompt_none_without_session_returns_login_required(client):
+    """OIDC Core §3.1.2.1: prompt=none must never show a login page."""
+    resp = _authorize(client, prompt="none")
+    assert resp.status_code == 302
+    location = resp.headers["Location"]
+    assert _error(location) == "login_required"
+    # Reported to the RP, not by redirecting the user to authenticate.
+    assert location.startswith(REDIRECT_URI)
+    assert parse_qs(urlsplit(location).query)["state"] == ["st"]
+
+
+def test_prompt_none_with_session_issues_a_code(client):
+    """An active session satisfies prompt=none, so the flow completes silently."""
+    obtain_code(client)  # establishes the SSO session
+    resp = _authorize(client, prompt="none")
+    query = parse_qs(urlsplit(resp.headers["Location"]).query)
+    assert "code" in query
+    assert "error" not in query
+
+
+def test_prompt_none_combined_with_other_values_is_invalid_request(client):
+    resp = _authorize(client, prompt="none%20login")
+    assert _error(resp.headers["Location"]) == "invalid_request"
+
+
 def test_reused_sso_session_drops_previous_pkce_and_nonce(client):
     """code_challenge and nonce bind to one authorization request, not the SSO
     session (RFC 7636 §4.4, OIDC Core §3.1.3.6).

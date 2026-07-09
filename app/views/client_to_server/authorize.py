@@ -52,6 +52,10 @@ def authorization_endpoint():
     nonce = request.args.get('nonce', getSessionData('nonce'))
     code_challenge = request.args.get('code_challenge', getSessionData('code_challenge'))
     code_challenge_method = request.args.get('code_challenge_method', getSessionData('code_challenge_method'))
+    # prompt is per-request and deliberately not carried across the login
+    # round-trip: a request that reaches the login page has, by definition, not
+    # asked for prompt=none.
+    prompts = (request.args.get('prompt') or '').split()
 
     if not response_type:
         return authorize_error_redirect(redirect_uri, 'invalid_request', 'response_type is required', state)
@@ -64,6 +68,10 @@ def authorization_endpoint():
         # This is an OpenID Provider; the request MUST include openid
         # (OIDC Core §3.1.2.1).
         return authorize_error_redirect(redirect_uri, 'invalid_scope', 'openid scope is required', state)
+    # OIDC Core §3.1.2.1: "none" must not be combined with any other prompt
+    # value, since the two demands are contradictory.
+    if 'none' in prompts and len(prompts) > 1:
+        return authorize_error_redirect(redirect_uri, 'invalid_request', 'prompt=none must not be combined with other values', state)
     # state is RECOMMENDED, not REQUIRED (RFC 6749 §4.1.1); it is echoed back
     # only when the client supplied it.
 
@@ -93,6 +101,10 @@ def authorization_endpoint():
     # Link: https://openid.net/specs/openid-connect-core-1_0.html#AuthRequest
     user_key = getSessionData('user')
     if not user_key:
+        # OIDC Core §3.1.2.1: prompt=none forbids any interactive prompt, so an
+        # absent session is reported to the RP rather than shown a login page.
+        if 'none' in prompts:
+            return authorize_error_redirect(redirect_uri, 'login_required', 'No active session and prompt=none was requested', state)
         setSessionData('client_id',     client_id)
         setSessionData('response_type', response_type)
         setSessionData('scope',         scope)
