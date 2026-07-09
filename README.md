@@ -7,6 +7,8 @@ This toy OIDC server is designed to provide a minimal OIDC server to develop and
 * Authorization Code flow with `openid`, `email`, `profile`, `groups`, and `offline_access` scopes
 * PKCE (RFC 7636) with S256 and plain challenge methods
 * Nonce validation for ID tokens
+* `prompt` (`none`, `login`, `consent`, `select_account`) and `max_age`, with a
+  very basic all-or-nothing consent screen that is never remembered
 * Refresh token support (via `offline_access` scope)
 * OIDC Discovery (`.well-known/openid-configuration`)
 * JWKS endpoint for token verification

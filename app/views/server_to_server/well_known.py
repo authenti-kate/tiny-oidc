@@ -66,6 +66,16 @@ def well_known():
                 "refresh_token"
             ],
             "code_challenge_methods_supported": ["S256", "plain"],
+            # prompt_values_supported is defined by "Initiating User Registration
+            # via OpenID Connect 1.0" §3, not by Discovery 1.0. "create" is not
+            # supported (no registration flow); select_account is honoured by
+            # re-authenticating, since the login page lists every account.
+            "prompt_values_supported": [
+                "none",
+                "login",
+                "consent",
+                "select_account"
+            ],
             # The token endpoint requires client authentication (see C2) and
             # accepts credentials via HTTP Basic or the request body.
             "token_endpoint_auth_methods_supported": [

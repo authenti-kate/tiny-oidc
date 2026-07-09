@@ -95,11 +95,32 @@ def authorization_endpoint():
     elif current_app.config.get('PKCE_REQUIRED'):
         return authorize_error_redirect(redirect_uri, 'invalid_request', 'PKCE code_challenge is required', state)
 
-    # Check user session (OIDC Core §3.1.2.1).
+    def remember_request():
+        """Park this authorization request across an interactive round-trip."""
+        setSessionData('client_id',     client_id)
+        setSessionData('response_type', response_type)
+        setSessionData('scope',         scope)
+        setSessionData('redirect_uri',  redirect_uri)
+        setSessionData('state',         state)
+        if nonce:
+            setSessionData('nonce',         nonce)
+        if code_challenge:
+            setSessionData('code_challenge', code_challenge)
+        if code_challenge_method:
+            setSessionData('code_challenge_method', code_challenge_method)
+
+    # Record that this request owes a consent decision. Set before the login
+    # check below so that "prompt=login consent" still asks for consent once the
+    # user has re-authenticated. Cleared by whichever way the user answers.
     #
-    # prompt=consent is NOT implemented: there is no consent store and no
-    # consent screen, so it is ignored rather than half-honoured. Everything
-    # else is handled here.
+    # If the user abandons the consent screen the flag survives, so the next
+    # authorization request in this browser session will ask again even though
+    # it did not request consent. That errs towards asking, and self-heals on
+    # the next answer.
+    if 'consent' in prompts:
+        setSessionData('pending_consent', True)
+
+    # Check user session (OIDC Core §3.1.2.1).
     user_key = getSessionData('user')
 
     if user_key:
@@ -130,38 +151,35 @@ def authorization_endpoint():
         # absent session is reported to the RP rather than shown a login page.
         if 'none' in prompts:
             return authorize_error_redirect(redirect_uri, 'login_required', 'No active session and prompt=none was requested', state)
-        setSessionData('client_id',     client_id)
-        setSessionData('response_type', response_type)
-        setSessionData('scope',         scope)
-        setSessionData('redirect_uri',  redirect_uri)
-        setSessionData('state',         state)
-        if nonce:
-            setSessionData('nonce',         nonce)
-        if code_challenge:
-            setSessionData('code_challenge', code_challenge)
-        if code_challenge_method:
-            setSessionData('code_challenge_method', code_challenge_method)
+        remember_request()
         return redirect(url_for('views.login'))
-    else:
-        # We got back here, we don't need to keep this now.
-        # But preserve nonce for the authorization creation
-        stored_nonce = getSessionData('nonce')
-        if stored_nonce and not nonce:
-            nonce = stored_nonce
-        stored_code_challenge = getSessionData('code_challenge')
-        if stored_code_challenge and not code_challenge:
-            code_challenge = stored_code_challenge
-        stored_code_challenge_method = getSessionData('code_challenge_method')
-        if stored_code_challenge_method and not code_challenge_method:
-            code_challenge_method = stored_code_challenge_method
-        deleteSessionData('client_id')
-        deleteSessionData('response_type')
-        deleteSessionData('scope')
-        deleteSessionData('redirect_uri')
-        deleteSessionData('state')
-        deleteSessionData('nonce')
-        deleteSessionData('code_challenge')
-        deleteSessionData('code_challenge_method')
+
+    # Signed in, but this request still owes a consent decision. /user/consent
+    # redirects back here once answered, carrying no prompt — which is what
+    # stops this looping.
+    if getSessionData('pending_consent'):
+        remember_request()
+        return redirect(url_for('views.consent'))
+
+    # We got back here, we don't need to keep this now.
+    # But preserve nonce for the authorization creation
+    stored_nonce = getSessionData('nonce')
+    if stored_nonce and not nonce:
+        nonce = stored_nonce
+    stored_code_challenge = getSessionData('code_challenge')
+    if stored_code_challenge and not code_challenge:
+        code_challenge = stored_code_challenge
+    stored_code_challenge_method = getSessionData('code_challenge_method')
+    if stored_code_challenge_method and not code_challenge_method:
+        code_challenge_method = stored_code_challenge_method
+    deleteSessionData('client_id')
+    deleteSessionData('response_type')
+    deleteSessionData('scope')
+    deleteSessionData('redirect_uri')
+    deleteSessionData('state')
+    deleteSessionData('nonce')
+    deleteSessionData('code_challenge')
+    deleteSessionData('code_challenge_method')
 
     # Get the authorization record
     auth_state = 'Existing '

@@ -173,6 +173,12 @@ class RelyingParty:
         # Step 4: /user/login -> /c2s/authorize -> RP /callback -> RP /session.
         self.page.wait_for_url(f"{self.rp_url}/session")
 
+    def decide_consent(self, decision):
+        """Answer the consent screen. decision is "accept" or "reject"."""
+        self.page.wait_for_url(f"{self.idp_url}/user/consent")
+        self.page.click(f'button[value="{decision}"]')
+        self.page.wait_for_url(f"{self.rp_url}/session")
+
     def state(self):
         """Step 5: whatever the RP made of the tokens it was issued."""
         return self.get("/api/session")

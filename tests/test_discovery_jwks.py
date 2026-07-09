@@ -24,6 +24,10 @@ def test_discovery_advertises_only_implemented_behaviour(client):
     assert doc["request_parameter_supported"] is False
     assert set(doc["token_endpoint_auth_methods_supported"]) == {
         "client_secret_basic", "client_secret_post"}
+    # Every advertised prompt value is actually honoured; "create" is not.
+    assert set(doc["prompt_values_supported"]) == {
+        "none", "login", "consent", "select_account"}
+    assert "create" not in doc["prompt_values_supported"]
 
 
 def test_fixed_issuer_beats_host_header(app):

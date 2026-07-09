@@ -123,6 +123,29 @@ def test_prompt_none_reuses_the_session_without_prompting(rp):
     assert state["id_claims"]["sub"] == "admin"
 
 
+def test_prompt_consent_accepted_issues_tokens(rp):
+    rp.login(persona="admin")
+
+    rp.start_login(prompt="consent")
+    rp.decide_consent("accept")
+
+    state = rp.state()
+    assert state["error"] is None, state
+    assert state["id_claims"]["sub"] == "admin"
+
+
+def test_prompt_consent_rejected_returns_access_denied(rp):
+    """The RP sees RFC 6749 §4.1.2.1 access_denied, not a hung flow."""
+    rp.login(persona="admin")
+
+    rp.start_login(prompt="consent")
+    rp.decide_consent("reject")
+
+    state = rp.state()
+    assert state["error"] == "access_denied"
+    assert state["authenticated"] is False
+
+
 def test_unknown_client_shows_an_error_without_redirecting(rp):
     """C1/M8: an unregistered client_id must not be redirected anywhere."""
     from urllib.parse import urlencode
