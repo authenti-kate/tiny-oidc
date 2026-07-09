@@ -1,5 +1,5 @@
 """Token endpoint conformance (RFC 6749 §4.1.3/§5.2/§6, RFC 7636, RFC 9700)."""
-from conftest import (
+from helpers import (
     CLIENT_ID, CLIENT_SECRET, obtain_code, exchange_code, pkce_pair,
 )
 

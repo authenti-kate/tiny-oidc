@@ -1,5 +1,5 @@
 """UserInfo (RFC 6750) and Introspection (RFC 7662) conformance."""
-from conftest import (
+from helpers import (
     CLIENT_ID, CLIENT_SECRET, obtain_code, exchange_code, pkce_pair,
 )
 

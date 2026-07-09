@@ -1,7 +1,7 @@
 """Authorization endpoint conformance (RFC 6749 §4.1, OIDC Core §3.1)."""
 from urllib.parse import urlsplit, parse_qs
 
-from conftest import CLIENT_ID, REDIRECT_URI
+from helpers import CLIENT_ID, REDIRECT_URI
 
 
 def _authorize(client, **overrides):
