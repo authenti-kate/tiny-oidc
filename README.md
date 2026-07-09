@@ -46,6 +46,27 @@ uv run pytest -m e2e         # browser-driven only
 Both suites build a throwaway SQLite database per run, because `db.create_all()`
 does not alter existing tables — a stale `app.db` will be missing columns.
 
+## Container image
+
+```sh
+docker run --rm -p 8000:8000 -e SECRET_KEY=... ghcr.io/authenti-kate/tiny-oidc:latest
+```
+
+Published to [GHCR](https://github.com/orgs/authenti-kate/packages/container/package/tiny-oidc)
+by `.github/workflows/release.yml` whenever a `v*` tag is pushed:
+
+```sh
+git tag -a v0.2.0 -m "..." && git push origin v0.2.0
+```
+
+That builds `linux/amd64` and `linux/arm64`, tags the image `:0.2.0`, `:0.2`,
+`:sha-<short>` and `:latest`, and attaches build provenance. The test suite must
+pass first.
+
+The image runs as an unprivileged user and creates its SQLite database on first
+boot. Do not mount a database made by an older version: `db.create_all()` adds
+missing tables but never `ALTER`s an existing one.
+
 It is very loosely based on details provided by:
 
 * https://spapas.github.io/2023/11/29/openid-connect-tutorial/
