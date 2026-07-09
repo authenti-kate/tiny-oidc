@@ -1,7 +1,11 @@
-ARG PYTHONVER=3.12
+# Debug variant of Dockerfile: identical image, but waits for a debugpy client
+# on 5678 before starting. Keep in step with Dockerfile.
+ARG PYTHONVER=3.14
 ARG DISTROBASE=bookworm
 FROM ghcr.io/astral-sh/uv:python${PYTHONVER}-${DISTROBASE}-slim AS builder
-ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy
+# See Dockerfile: without this, uv downloads a managed interpreter that the
+# final stage never copies, leaving .venv/bin/python3 dangling.
+ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy UV_PYTHON_PREFERENCE=only-system
 WORKDIR /app
 RUN --mount=type=cache,target=/root/.cache/uv \
     --mount=type=bind,source=uv.lock,target=uv.lock \
@@ -17,20 +21,25 @@ FROM python:${PYTHONVER}-slim-${DISTROBASE}
 # Python executable must be the same, e.g., using `python:3.11-slim-bookworm`
 # will fail.
 
-RUN apt-get update && apt-get install -y curl
+# Run unprivileged. /app must remain writable by that user: the default
+# SQLALCHEMY_DATABASE_URI puts app.db alongside config.py.
+RUN useradd --create-home --uid 1000 app
 
 # Copy the application from the builder
 COPY --from=builder --chown=app:app /app /app
 
 # Place executables in the environment at the front of the path
-ENV PATH="/app/.venv/bin:$PATH"
+ENV PATH="/app/.venv/bin:$PATH" \
+    PYTHONUNBUFFERED=1
 
-# Run the FastAPI application by default
-#CMD ["python3", "/app/app.py"]
-HEALTHCHECK --interval=5s --start-period=5s CMD [ "curl", "-f", "http://localhost:8000/health" ]
+# Probe with the interpreter that is already here rather than installing curl.
+HEALTHCHECK --interval=10s --timeout=3s --start-period=5s --retries=3 \
+    CMD ["python3", "-c", "import sys,urllib.request; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health', timeout=2).status == 200 else 1)"]
 
 # Extra steps for debugging
 RUN pip install debugpy -t /tmp
 
+USER app
 WORKDIR /app
+EXPOSE 8000 5678
 CMD ["python3", "/tmp/debugpy", "--wait-for-client", "--listen", "0.0.0.0:5678", "app.py"]
