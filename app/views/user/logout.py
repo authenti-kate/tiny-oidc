@@ -1,22 +1,27 @@
-import re
-import jwt
 from urllib.parse import urlencode, urlsplit, urlunsplit
-from flask import url_for, request, redirect
+from flask import url_for, request
+from markupsafe import escape
 from app.views import bp
 from app.log import debug
-from app.models.application import Application
 from app.session import deleteSessionData
 
 @bp.route('/user/logout')
 def logout():
-    """RP-Initiated Logout 1.0.
+    """RP-Initiated Logout 1.0, minus the redirect.
 
-    Clears the login session and, when a post_logout_redirect_uri is supplied,
-    redirects back to the RP (echoing state). If an id_token_hint is present it
-    is used to identify the client and validate the redirect target.
+    The login session is cleared, but a post_logout_redirect_uri is never
+    followed: the target is shown on an interstitial page instead.
+
+    RP-Initiated Logout §2 requires the provider to validate the target against
+    the URIs the client registered. Otherwise the end-session endpoint is an
+    open redirect on the provider's own origin: an unauthenticated GET that
+    bounces a browser anywhere an attacker names, wearing the provider's domain.
+    tiny-oidc registers redirect URIs loosely on purpose (the seeded client uses
+    the '*' wildcard), so there is nothing meaningful to validate against.
+    Displaying the target keeps the endpoint useful for exercising a client's
+    logout flow while making the redirect impossible.
     """
     debug('GET: /user/logout')
-    id_token_hint = request.args.get('id_token_hint')
     post_logout_redirect_uri = request.args.get('post_logout_redirect_uri')
     state = request.args.get('state')
 
@@ -24,23 +29,23 @@ def logout():
     deleteSessionData('sign_in')
 
     if post_logout_redirect_uri:
-        # Validate the redirect target against the hinted client when possible.
-        allowed = True
-        if id_token_hint:
-            try:
-                claims = jwt.decode(id_token_hint, options={'verify_signature': False})
-                application = Application.query.filter_by(client_id=claims.get('aud')).one_or_none()
-                if application and application.acceptable_redirect_uri != '*':
-                    allowed = bool(re.match(application.acceptable_redirect_uri, post_logout_redirect_uri))
-            except jwt.PyJWTError:
-                allowed = False
-        if allowed:
-            parts = urlsplit(post_logout_redirect_uri)
-            query = parts.query
-            if state:
-                query = query + ('&' if query else '') + urlencode({'state': state})
-            return redirect(urlunsplit((parts.scheme, parts.netloc, parts.path, query, parts.fragment)))
-        debug('/user/logout - post_logout_redirect_uri rejected for hinted client')
+        # Show the target exactly as the RP would have received it, state and
+        # all, so a client author can see what a real provider would have sent.
+        parts = urlsplit(post_logout_redirect_uri)
+        query = parts.query
+        if state:
+            query = query + ('&' if query else '') + urlencode({'state': state})
+        target = urlunsplit((parts.scheme, parts.netloc, parts.path, query, parts.fragment))
+        debug(f'/user/logout - not following post_logout_redirect_uri: {target}')
+        # The target is caller-controlled, so escape it rather than reflecting
+        # it into the page verbatim.
+        body = (
+            f'<p>You have logged out, you would be redirected to '
+            f'<code>{escape(target)}</code>. '
+            f'For security reasons, this will not happen here.</p>'
+        )
+    else:
+        body = '<p>You have logged out.</p>'
 
     return f"""
 <html>
@@ -52,6 +57,7 @@ def logout():
         <hr>
         <h2 color="red">BE WARNED, THIS SERVER IS NOT SECURE AND IS USED FOR POC TESTING ONLY</h2>
         <hr>
+        {body}
         <p><a href="{url_for('views.login')}">Log back in</a></p>
     </body>
 </html>"""

@@ -1,6 +1,9 @@
 """Token endpoint conformance (RFC 6749 §4.1.3/§5.2/§6, RFC 7636, RFC 9700)."""
-from conftest import (
-    CLIENT_ID, CLIENT_SECRET, obtain_code, exchange_code, pkce_pair,
+import base64
+from urllib.parse import quote
+
+from helpers import (
+    CLIENT_ID, CLIENT_SECRET, REDIRECT_URI, obtain_code, exchange_code, pkce_pair,
 )
 
 
@@ -83,3 +86,137 @@ def test_refresh_requires_client_auth(client):
     code, _ = obtain_code(client, challenge=challenge)
     rt = exchange_code(client, code, verifier=verifier).get_json()["refresh_token"]
     assert _refresh(client, rt, secret=None).status_code == 401
+
+
+def test_code_exchange_rejects_a_mismatched_redirect_uri(client):
+    """RFC 6749 §4.1.3/§10.6: the code is bound to the target it was sent to."""
+    verifier, challenge = pkce_pair()
+    code, _ = obtain_code(client, challenge=challenge)
+    resp = exchange_code(client, code, verifier=verifier,
+                         redirect_uri="https://attacker.example/steal")
+    assert resp.status_code == 400
+    assert resp.get_json()["error"] == "invalid_grant"
+
+
+def test_code_exchange_requires_the_redirect_uri(client):
+    """It was present in the authorization request, so it is REQUIRED here."""
+    verifier, challenge = pkce_pair()
+    code, _ = obtain_code(client, challenge=challenge)
+    resp = exchange_code(client, code, verifier=verifier, redirect_uri=None)
+    assert resp.status_code == 400
+    assert resp.get_json()["error"] == "invalid_request"
+
+
+def test_code_exchange_accepts_the_matching_redirect_uri(client):
+    verifier, challenge = pkce_pair()
+    code, _ = obtain_code(client, challenge=challenge)
+    assert exchange_code(client, code, verifier=verifier).status_code == 200
+
+
+def test_a_rejected_redirect_uri_does_not_consume_the_code(client):
+    """A failed check must not burn the code, or it becomes a DoS vector."""
+    verifier, challenge = pkce_pair()
+    code, _ = obtain_code(client, challenge=challenge)
+
+    bad = exchange_code(client, code, verifier=verifier,
+                        redirect_uri="https://attacker.example/steal")
+    assert bad.status_code == 400
+
+    # The legitimate client can still redeem its own code.
+    assert exchange_code(client, code, verifier=verifier).status_code == 200
+
+
+def test_expired_authorization_code_is_rejected(app):
+    """RFC 6749 §4.1.2: a code that has outlived its lifetime is not redeemable."""
+    from datetime import datetime, timedelta, timezone
+
+    from app.extensions import db
+    from app.models.authorization import Authorization
+
+    client = app.test_client()
+    verifier, challenge = pkce_pair()
+    code, _ = obtain_code(client, challenge=challenge)
+
+    with app.app_context():
+        authorization = Authorization.query.filter_by(code=code).one()
+        authorization.code_expires_at = (
+            datetime.now(timezone.utc) - timedelta(seconds=1)
+        )
+        db.session.commit()
+
+    resp = exchange_code(client, code, verifier=verifier)
+    assert resp.status_code == 400
+    assert resp.get_json()["error"] == "invalid_grant"
+
+
+def test_error_responses_are_json_with_an_error_code(client):
+    """RFC 6749 §5.2: errors are a JSON object carrying an `error` code."""
+    cases = [
+        # (form data, expected error code)
+        ({"grant_type": "authorization_code", "client_id": CLIENT_ID,
+          "client_secret": CLIENT_SECRET}, "invalid_request"),
+        ({"grant_type": "authorization_code", "code": "no-such-code",
+          "client_id": CLIENT_ID, "client_secret": CLIENT_SECRET}, "invalid_grant"),
+        ({"grant_type": "refresh_token", "client_id": CLIENT_ID,
+          "client_secret": CLIENT_SECRET}, "invalid_request"),
+        ({"grant_type": "refresh_token", "refresh_token": "no-such-token",
+          "client_id": CLIENT_ID, "client_secret": CLIENT_SECRET}, "invalid_grant"),
+    ]
+    for data, expected in cases:
+        resp = client.post("/s2s/token", data=data)
+        assert resp.status_code == 400, data
+        assert resp.mimetype == "application/json", data
+        assert resp.get_json()["error"] == expected, data
+
+
+def test_pkce_failure_is_invalid_grant_json(client):
+    """RFC 7636 §4.6 reports a bad verifier through the §5.2 error response."""
+    _, challenge = pkce_pair()
+    code, _ = obtain_code(client, challenge=challenge)
+    resp = exchange_code(client, code, verifier="b" * 64)
+    assert resp.status_code == 400
+    assert resp.get_json()["error"] == "invalid_grant"
+
+
+def test_token_responses_are_not_cacheable(client):
+    """RFC 6749 §5.1/§5.2: both success and error responses set no-store."""
+    verifier, challenge = pkce_pair()
+    code, _ = obtain_code(client, challenge=challenge)
+    success = exchange_code(client, code, verifier=verifier)
+    assert success.status_code == 200
+    assert success.headers["Cache-Control"] == "no-store"
+
+    failure = client.post("/s2s/token", data={"grant_type": "password"})
+    assert failure.headers["Cache-Control"] == "no-store"
+
+
+def _basic_exchange(client, code, verifier, client_id, client_secret):
+    header = base64.b64encode(f"{client_id}:{client_secret}".encode()).decode()
+    return client.post("/s2s/token", data={
+        "grant_type": "authorization_code", "code": code, "code_verifier": verifier,
+        "redirect_uri": REDIRECT_URI,
+    }, headers={"Authorization": f"Basic {header}"})
+
+
+def test_client_secret_basic_accepts_raw_credentials(client):
+    """The form used by requests, and by most clients in practice."""
+    verifier, challenge = pkce_pair()
+    code, _ = obtain_code(client, challenge=challenge)
+    resp = _basic_exchange(client, code, verifier, CLIENT_ID, CLIENT_SECRET)
+    assert resp.status_code == 200
+
+
+def test_client_secret_basic_accepts_urlencoded_credentials(client):
+    """RFC 6749 §2.3.1: credentials are form-urlencoded before base64 encoding.
+
+    The seeded secret contains '+' and '=', so a strictly conformant client
+    sends something different on the wire from the raw form above. Both must
+    authenticate.
+    """
+    verifier, challenge = pkce_pair()
+    code, _ = obtain_code(client, challenge=challenge)
+    resp = _basic_exchange(
+        client, code, verifier,
+        quote(CLIENT_ID, safe=""), quote(CLIENT_SECRET, safe=""),
+    )
+    assert resp.status_code == 200

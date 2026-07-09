@@ -8,7 +8,13 @@ from app.extensions import db
 from app.models.application import Application
 from app.models.authorization import Authorization
 from app.session import getSessionData, setSessionData, deleteSessionData, _mySession
-from app.views.client_to_server import invalid_authorize_data, authorize_error_redirect, authorize_success_redirect
+from app.prompts import SUPPORTED_PROMPTS
+from app.views.client_to_server import (
+    invalid_authorize_data,
+    authorize_error_redirect,
+    authorize_success_redirect,
+    unsupported_prompt,
+)
 
 
 @bp.route('/c2s/authorize')
@@ -52,6 +58,12 @@ def authorization_endpoint():
     nonce = request.args.get('nonce', getSessionData('nonce'))
     code_challenge = request.args.get('code_challenge', getSessionData('code_challenge'))
     code_challenge_method = request.args.get('code_challenge_method', getSessionData('code_challenge_method'))
+    # prompt and max_age are per-request and deliberately NOT carried across the
+    # login round-trip in the session. That is what stops prompt=login looping:
+    # the request that /user/login bounces back here carries neither, so the
+    # freshly established session satisfies it.
+    prompts = (request.args.get('prompt') or '').split()
+    max_age = request.args.get('max_age')
 
     if not response_type:
         return authorize_error_redirect(redirect_uri, 'invalid_request', 'response_type is required', state)
@@ -64,6 +76,25 @@ def authorization_endpoint():
         # This is an OpenID Provider; the request MUST include openid
         # (OIDC Core §3.1.2.1).
         return authorize_error_redirect(redirect_uri, 'invalid_scope', 'openid scope is required', state)
+    # A prompt value we do not advertise (notably "create") gets a direct 400
+    # rather than an error redirect — see unsupported_prompt(). Checked first,
+    # so an unsupported value is never silently ignored.
+    unsupported = [p for p in prompts if p not in SUPPORTED_PROMPTS]
+    if unsupported:
+        debug(f'In /c2s/authorize - unsupported prompt value(s): {unsupported}', str(_mySession().key))
+        return unsupported_prompt(unsupported)
+    # OIDC Core §3.1.2.1: "none" must not be combined with any other prompt
+    # value, since the two demands are contradictory.
+    if 'none' in prompts and len(prompts) > 1:
+        return authorize_error_redirect(redirect_uri, 'invalid_request', 'prompt=none must not be combined with other values', state)
+    # max_age is "Maximum Authentication Age" in seconds (OIDC Core §3.1.2.1).
+    if max_age is not None:
+        try:
+            max_age = int(max_age)
+        except ValueError:
+            max_age = -1
+        if max_age < 0:
+            return authorize_error_redirect(redirect_uri, 'invalid_request', 'max_age must be a non-negative integer', state)
     # state is RECOMMENDED, not REQUIRED (RFC 6749 §4.1.1); it is echoed back
     # only when the client supplied it.
 
@@ -77,22 +108,8 @@ def authorization_endpoint():
     elif current_app.config.get('PKCE_REQUIRED'):
         return authorize_error_redirect(redirect_uri, 'invalid_request', 'PKCE code_challenge is required', state)
 
-    # Check user session
-    #
-    # Strictly speaking, at this point we should also verify whether
-    # request.args.get('prompt') is populated with the term "consent"
-    # then we should also note this, and force them through a step
-    # to confirm they're happy with the client_id being able to request
-    # your authentication data. This, however, is a toy and shouldn't
-    # introduce additional workflows, right now! :)
-    #
-    # Actually, on further reading, there are three additional options
-    # here, "none" - don't prompt, "login" force a re-login! and
-    # "select_account" - offer the option to switch to another account,
-    # if the user has one.
-    # Link: https://openid.net/specs/openid-connect-core-1_0.html#AuthRequest
-    user_key = getSessionData('user')
-    if not user_key:
+    def remember_request():
+        """Park this authorization request across an interactive round-trip."""
         setSessionData('client_id',     client_id)
         setSessionData('response_type', response_type)
         setSessionData('scope',         scope)
@@ -104,27 +121,78 @@ def authorization_endpoint():
             setSessionData('code_challenge', code_challenge)
         if code_challenge_method:
             setSessionData('code_challenge_method', code_challenge_method)
+
+    # Record that this request owes a consent decision. Set before the login
+    # check below so that "prompt=login consent" still asks for consent once the
+    # user has re-authenticated. Cleared by whichever way the user answers.
+    #
+    # If the user abandons the consent screen the flag survives, so the next
+    # authorization request in this browser session will ask again even though
+    # it did not request consent. That errs towards asking, and self-heals on
+    # the next answer.
+    if 'consent' in prompts:
+        setSessionData('pending_consent', True)
+
+    # Check user session (OIDC Core §3.1.2.1).
+    user_key = getSessionData('user')
+
+    if user_key:
+        # prompt=select_account asks the user to pick among their accounts. This
+        # server holds exactly one authenticated identity per session, and its
+        # login page already lists every account, so re-authenticating IS the
+        # account picker. Treating it as prompt=login is the honest mapping;
+        # doing better would mean a session holding a set of identities.
+        reauthenticate = 'login' in prompts or 'select_account' in prompts
+        if not reauthenticate and max_age is not None:
+            sign_in = getSessionData('sign_in')
+            reauthenticate = (
+                sign_in is None
+                or datetime.now(timezone.utc).timestamp() - sign_in > max_age
+            )
+        if reauthenticate:
+            # prompt=none forbids any interaction, so report rather than
+            # prompt — and do not tear down the session on the way past. An RP
+            # must not be able to sign a user out by probing with prompt=none.
+            if 'none' in prompts:
+                return authorize_error_redirect(redirect_uri, 'login_required', 'Re-authentication required and prompt=none was requested', state)
+            deleteSessionData('user')
+            deleteSessionData('sign_in')
+            user_key = None
+
+    if not user_key:
+        # OIDC Core §3.1.2.1: prompt=none forbids any interactive prompt, so an
+        # absent session is reported to the RP rather than shown a login page.
+        if 'none' in prompts:
+            return authorize_error_redirect(redirect_uri, 'login_required', 'No active session and prompt=none was requested', state)
+        remember_request()
         return redirect(url_for('views.login'))
-    else:
-        # We got back here, we don't need to keep this now.
-        # But preserve nonce for the authorization creation
-        stored_nonce = getSessionData('nonce')
-        if stored_nonce and not nonce:
-            nonce = stored_nonce
-        stored_code_challenge = getSessionData('code_challenge')
-        if stored_code_challenge and not code_challenge:
-            code_challenge = stored_code_challenge
-        stored_code_challenge_method = getSessionData('code_challenge_method')
-        if stored_code_challenge_method and not code_challenge_method:
-            code_challenge_method = stored_code_challenge_method
-        deleteSessionData('client_id')
-        deleteSessionData('response_type')
-        deleteSessionData('scope')
-        deleteSessionData('redirect_uri')
-        deleteSessionData('state')
-        deleteSessionData('nonce')
-        deleteSessionData('code_challenge')
-        deleteSessionData('code_challenge_method')
+
+    # Signed in, but this request still owes a consent decision. /user/consent
+    # redirects back here once answered, carrying no prompt — which is what
+    # stops this looping.
+    if getSessionData('pending_consent'):
+        remember_request()
+        return redirect(url_for('views.consent'))
+
+    # We got back here, we don't need to keep this now.
+    # But preserve nonce for the authorization creation
+    stored_nonce = getSessionData('nonce')
+    if stored_nonce and not nonce:
+        nonce = stored_nonce
+    stored_code_challenge = getSessionData('code_challenge')
+    if stored_code_challenge and not code_challenge:
+        code_challenge = stored_code_challenge
+    stored_code_challenge_method = getSessionData('code_challenge_method')
+    if stored_code_challenge_method and not code_challenge_method:
+        code_challenge_method = stored_code_challenge_method
+    deleteSessionData('client_id')
+    deleteSessionData('response_type')
+    deleteSessionData('scope')
+    deleteSessionData('redirect_uri')
+    deleteSessionData('state')
+    deleteSessionData('nonce')
+    deleteSessionData('code_challenge')
+    deleteSessionData('code_challenge_method')
 
     # Get the authorization record
     auth_state = 'Existing '
@@ -134,16 +202,26 @@ def authorization_endpoint():
         Authorization.session_valid >= datetime.now(timezone.utc),
         Authorization.session_start <= datetime.now(timezone.utc)
     ).one_or_none()
+    now_utc = datetime.now(timezone.utc)
+    code_lifetime = timedelta(seconds=current_app.config['AUTHORIZATION_CODE_LIFETIME'])
+    session_lifetime = timedelta(seconds=current_app.config['SSO_SESSION_LIFETIME'])
+    # When the user actually authenticated. This is the auth_time claim, so it
+    # must track the current login: after a prompt=login or max_age forced
+    # re-authentication, sign_in has moved and a reused Authorization row must
+    # move with it (OIDC Core §2, auth_time).
+    authentication_start = datetime.fromtimestamp(getSessionData('sign_in'), timezone.utc)
+
     if not authorization:
         auth_state = 'New '
-        now_utc = datetime.now(timezone.utc)
         authorization: Authorization = Authorization(
             user=user_key,
             application_client_id=application.client_id,
             scope=scope,
-            authentication_start=datetime.fromtimestamp(getSessionData('sign_in'), timezone.utc),
+            authentication_start=authentication_start,
             session_start=now_utc,
-            session_valid=now_utc + timedelta(minutes=15),
+            session_valid=now_utc + session_lifetime,
+            code_expires_at=now_utc + code_lifetime,
+            redirect_uri=redirect_uri,
             nonce=nonce,
             code_challenge=code_challenge,
             code_challenge_method=code_challenge_method
@@ -157,14 +235,24 @@ def authorization_endpoint():
         # invalidates any prior unredeemed code for this session.
         authorization.code = str(uuid.uuid4())
         authorization.code_used = False
-        # Update the scope, nonce and PKCE params for the existing authorization to match the current request
-        if scope and authorization.scope != scope:
-            authorization.scope = scope
-        if nonce and authorization.nonce != nonce:
-            authorization.nonce = nonce
-        if code_challenge and authorization.code_challenge != code_challenge:
-            authorization.code_challenge = code_challenge
-            authorization.code_challenge_method = code_challenge_method
+        # The new code gets its own full lifetime, independent of how much of
+        # the SSO session window remains.
+        authorization.code_expires_at = now_utc + code_lifetime
+        # Replace the per-request parameters with THIS request's values, even
+        # when absent. These bind to a single authorization request, not to the
+        # SSO session: the code_challenge must bind the code to this request's
+        # verifier (RFC 7636 §4.4) and the nonce claim must be the value sent in
+        # this request (OIDC Core §3.1.3.6). Only overwriting them when the new
+        # request supplies a value leaves a previous request's challenge and
+        # nonce attached to a freshly minted code — which makes a non-PKCE
+        # request after a PKCE one issue a code that cannot be redeemed, and
+        # puts a stale nonce in the ID token.
+        authorization.scope = scope
+        authorization.nonce = nonce
+        authorization.redirect_uri = redirect_uri
+        authorization.code_challenge = code_challenge
+        authorization.code_challenge_method = code_challenge_method
+        authorization.authentication_start = authentication_start
         db.session.commit()
         auth_state = 'Updated '
     debug(auth_state + authorization.trace())

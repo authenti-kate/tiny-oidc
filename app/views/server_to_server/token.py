@@ -17,7 +17,6 @@ from app.crypto import ct_equal
 from app.urls import external_url
 from app.times import numeric_date
 from app.views.server_to_server import (
-    invalid_token_data,
     token_error,
     client_credentials,
 )
@@ -38,14 +37,14 @@ def token_endpoint():
     if grant_type == 'refresh_token':
         refresh_token_value = request.form.get('refresh_token', None)
         if not refresh_token_value:
-            return invalid_token_data('Missing refresh_token')
-        
+            return token_error('invalid_request', 'Missing refresh_token', 400)
+
         refresh_token: RefreshToken = RefreshToken.query.filter_by(token=refresh_token_value).one_or_none()
 
         # Validate refresh token. Check existence before dereferencing it, otherwise
         # an unknown token raises AttributeError instead of a clean error response.
         if not refresh_token:
-            return invalid_token_data('Invalid or expired refresh_token')
+            return token_error('invalid_grant', 'Invalid or expired refresh_token', 400)
 
         # Replay detection (RFC 9700 §2.2.2): a consumed token presented again
         # indicates the token (or its successor) leaked; revoke the whole family.
@@ -57,15 +56,16 @@ def token_endpoint():
 
         refresh_token_expiry_time = refresh_token.expiry_time.replace(tzinfo=timezone.utc)
         if refresh_token_expiry_time < now_time:
-            return invalid_token_data('Invalid or expired refresh_token')
+            return token_error('invalid_grant', 'Invalid or expired refresh_token', 400)
 
         # Validate the associated user and application
         user = User.query.filter_by(username=refresh_token.subject).one_or_none()
         application = Application.query.filter_by(client_id=refresh_token.audience).one_or_none()
 
         if not user or not application:
-            # TODO: Check What to do if the application or user are no longer valid?
-            return invalid_token_data('Invalid user or application')
+            # The grant refers to a user or client that no longer exists, so the
+            # grant itself is no longer valid (RFC 6749 §5.2 invalid_grant).
+            return token_error('invalid_grant', 'Invalid user or application', 400)
 
         # Authenticate the client on the refresh grant too (RFC 6749 §6 / §3.2.1);
         # C2 covered the code exchange, but a refresh must not rotate a token
@@ -106,7 +106,10 @@ def token_endpoint():
         if len(invalid_context) > 0:
             debug(
                 f'In /s2s/token - Invalid token context provided : {", ".join(invalid_context)}')
-            return invalid_token_data('Invalid token context provided')
+            return token_error(
+                'invalid_request',
+                f'Missing required parameter: {", ".join(invalid_context)}',
+                400)
 
         authorization: Authorization = Authorization.query.filter(
             Authorization.code == code,
@@ -130,18 +133,37 @@ def token_endpoint():
             db.session.commit()
             return token_error('invalid_grant', 'Authorization code has already been used', 400)
 
-        # Reject an expired code (outside the session window). session_valid is
-        # stored naive (UTC); make it tz-aware before comparing with now_time.
-        if authorization is not None and \
-                authorization.session_valid.replace(tzinfo=timezone.utc) < now_time:
+        # Reject an expired code (RFC 6749 §4.1.2). The code has its own short
+        # lifetime, distinct from how long the SSO session behind it may be
+        # reused. code_expires_at is stored naive (UTC); make it tz-aware before
+        # comparing with now_time. A row with no expiry predates that column and
+        # cannot be trusted, so treat it as expired.
+        if authorization is not None and (
+                authorization.code_expires_at is None
+                or authorization.code_expires_at.replace(tzinfo=timezone.utc) < now_time):
             authorization = None
 
         if authorization:
+            # RFC 6749 §4.1.3: when the authorization request carried a
+            # redirect_uri, the token request MUST carry an identical value.
+            # The code alone does not record where it was delivered, so without
+            # this a code obtained at one redirect target can be redeemed as
+            # though it had been obtained at another (§10.6, code injection).
+            if authorization.redirect_uri:
+                presented_redirect_uri = request.form.get('redirect_uri', None)
+                if not presented_redirect_uri:
+                    return token_error('invalid_request', 'Missing redirect_uri', 400)
+                if presented_redirect_uri != authorization.redirect_uri:
+                    debug('In /s2s/token - redirect_uri does not match the authorization request')
+                    return token_error('invalid_grant', 'redirect_uri does not match the authorization request', 400)
+
             # PKCE validation (RFC 7636)
+            # RFC 7636 §4.6: a failed verifier check is reported using the
+            # RFC 6749 §5.2 error response, with the code invalid_grant.
             code_verifier = request.form.get('code_verifier', None)
             if authorization.code_challenge:
                 if not code_verifier:
-                    return invalid_token_data('Missing code_verifier for PKCE')
+                    return token_error('invalid_grant', 'Missing code_verifier for PKCE', 400)
                 # RFC 7636 §4.3: a stored challenge with no method means "plain".
                 method = authorization.code_challenge_method or 'plain'
                 if method == 'S256':
@@ -149,14 +171,14 @@ def token_endpoint():
                         hashlib.sha256(code_verifier.encode('ascii')).digest()
                     ).rstrip(b'=').decode('ascii')
                     if not ct_equal(computed, authorization.code_challenge):
-                        return invalid_token_data('Invalid code_verifier')
+                        return token_error('invalid_grant', 'Invalid code_verifier', 400)
                 elif method == 'plain':
                     if not ct_equal(code_verifier, authorization.code_challenge):
-                        return invalid_token_data('Invalid code_verifier')
+                        return token_error('invalid_grant', 'Invalid code_verifier', 400)
                 else:
-                    return invalid_token_data('Unsupported code_challenge_method')
+                    return token_error('invalid_request', 'Unsupported code_challenge_method', 400)
             elif code_verifier:
-                return invalid_token_data('Unexpected code_verifier')
+                return token_error('invalid_grant', 'Unexpected code_verifier', 400)
 
             client_id = authorization.application_client_id
             application: Application = Application.query.filter(
@@ -165,9 +187,9 @@ def token_endpoint():
             user: User = User.query.filter(
                 User.username == authorization.user).one_or_none()
             if not user:
-                return invalid_token_data('Authentication expired')
+                return token_error('invalid_grant', 'Authentication expired', 400)
             if not application:
-                return invalid_token_data('Application not acceptable')
+                return token_error('invalid_grant', 'Application not acceptable', 400)
 
             # Authenticate the client the code was issued to (RFC 6749 §3.2.1 /
             # §4.1.3). The authorization code is bound to
@@ -200,7 +222,7 @@ def token_endpoint():
             # A fresh authorization starts a new refresh-token family.
             refresh_family = uuid.uuid4().hex
         else:
-            return invalid_token_data('Authorization expired')
+            return token_error('invalid_grant', 'Authorization code is invalid or has expired', 400)
 
     else:
         # Any grant_type other than the two supported above (including a missing
@@ -325,4 +347,9 @@ def token_endpoint():
         reply["refresh_token"] = new_refresh_token  # Add it to the response
 
     debug(f"Request: '/s2s/token' Reply: {reply}")
-    return jsonify(reply)
+    # RFC 6749 §5.1: a successful token response carries credentials and MUST
+    # NOT be cached. token_error() already sets these on the failure paths.
+    response = jsonify(reply)
+    response.headers['Cache-Control'] = 'no-store'
+    response.headers['Pragma'] = 'no-cache'
+    return response

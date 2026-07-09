@@ -1,5 +1,5 @@
 """UserInfo (RFC 6750) and Introspection (RFC 7662) conformance."""
-from conftest import (
+from helpers import (
     CLIENT_ID, CLIENT_SECRET, obtain_code, exchange_code, pkce_pair,
 )
 
@@ -31,6 +31,16 @@ def test_userinfo_returns_sub_and_scoped_claims(client):
     assert claims["sub"] == "admin"
     # profile + groups were requested by obtain_code's default scope.
     assert "name" in claims and "groups" in claims
+
+
+def test_userinfo_supports_post(client):
+    """OIDC Core §5.3.1: the endpoint MUST support both GET and POST."""
+    tokens = _tokens(client)
+    headers = {"Authorization": f"Bearer {tokens['access_token']}"}
+    get_claims = client.get("/s2s/userinfo", headers=headers).get_json()
+    post = client.post("/s2s/userinfo", headers=headers)
+    assert post.status_code == 200
+    assert post.get_json() == get_claims
 
 
 def test_userinfo_rejects_id_token(client):

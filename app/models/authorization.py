@@ -15,6 +15,16 @@ class Authorization(db.Model):
     # code has been redeemed at the token endpoint; a second redemption is a
     # replay and must be rejected.
     code_used = db.Column(sa.Boolean, default=False)
+    # When the current code stops being redeemable. Tracked separately from
+    # session_valid: §4.1.2 wants a short-lived code (10 minutes maximum,
+    # RECOMMENDED), whereas session_valid governs how long this SSO session may
+    # be reused to satisfy further authorization requests. Refreshed whenever a
+    # new code is minted.
+    code_expires_at = db.Column(sa.DateTime)
+    # The redirect_uri this code was issued against. RFC 6749 §4.1.3 requires
+    # the token request to present an identical value, binding the code to the
+    # target it was delivered to.
+    redirect_uri = db.Column(sa.Text)
     scope = db.Column(sa.String(255))
     nonce = db.Column(sa.String(255))
     code_challenge = db.Column(sa.String(255))
@@ -36,6 +46,8 @@ class Authorization(db.Model):
         session_start = None,
         session_valid = None,
         code = None,
+        code_expires_at = None,
+        redirect_uri = None,
         scope = None,
         nonce = None,
         code_challenge = None,
@@ -62,6 +74,12 @@ class Authorization(db.Model):
             self.code = str(uuid.uuid4())
         self.code_used = False
 
+        if code_expires_at is not None:
+            self.code_expires_at = code_expires_at
+
+        if redirect_uri is not None:
+            self.redirect_uri = redirect_uri
+
         if scope is not None:
             self.scope = scope
 
@@ -83,6 +101,8 @@ class Authorization(db.Model):
             'session_valid': self.session_valid.strftime("%Y-%m-%d %H:%M:%S"),
             'code': self.code,
             'code_used': self.code_used,
+            'code_expires_at': self.code_expires_at,
+            'redirect_uri': self.redirect_uri,
             'scope': self.scope,
             'nonce': self.nonce,
             'code_challenge': self.code_challenge,

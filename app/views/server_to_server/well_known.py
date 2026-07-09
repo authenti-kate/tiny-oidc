@@ -1,4 +1,5 @@
 from app.log import debug
+from app.prompts import SUPPORTED_PROMPTS
 from app.views import bp
 from app.urls import external_url
 from flask import jsonify, url_for, request
@@ -66,6 +67,13 @@ def well_known():
                 "refresh_token"
             ],
             "code_challenge_methods_supported": ["S256", "plain"],
+            # prompt_values_supported is defined by "Initiating User Registration
+            # via OpenID Connect 1.0" §3, not by Discovery 1.0. Read from the
+            # same constant the authorization endpoint enforces, so the two
+            # cannot drift. "create" is absent (no registration flow);
+            # select_account is honoured by re-authenticating, since the login
+            # page lists every account.
+            "prompt_values_supported": list(SUPPORTED_PROMPTS),
             # The token endpoint requires client authentication (see C2) and
             # accepts credentials via HTTP Basic or the request body.
             "token_endpoint_auth_methods_supported": [
