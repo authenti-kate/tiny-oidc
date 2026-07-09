@@ -121,6 +121,8 @@ def create_rp(
         client_auth = request.args.get("auth", "post")
         pkce = request.args.get("pkce", "S256")
         scope = request.args.get("scope", "openid profile groups offline_access")
+        prompt = request.args.get("prompt")
+        max_age = request.args.get("max_age")
         if client_auth not in CLIENT_AUTH_METHODS:
             return f"bad auth method {client_auth}", 400
         if pkce not in PKCE_MODES:
@@ -146,6 +148,10 @@ def create_rp(
             "state": data["state"],
             "nonce": data["nonce"],
         }
+        if prompt:
+            params["prompt"] = prompt
+        if max_age is not None:
+            params["max_age"] = max_age
 
         if pkce != "none":
             verifier = secrets.token_urlsafe(64)[:64]

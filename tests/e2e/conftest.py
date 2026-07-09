@@ -154,11 +154,16 @@ class RelyingParty:
         self.select_persona(persona)
         return self.state()
 
-    def start_login(self, auth="post", pkce="S256", scope=None):
+    def start_login(self, auth="post", pkce="S256", scope=None, prompt=None,
+                    max_age=None):
         """Step 1-2: the RP redirects the browser to the provider."""
         params = f"auth={auth}&pkce={pkce}"
         if scope is not None:
             params += f"&scope={scope.replace(' ', '%20')}"
+        if prompt is not None:
+            params += f"&prompt={prompt}"
+        if max_age is not None:
+            params += f"&max_age={max_age}"
         self.page.goto(f"{self.rp_url}/login?{params}")
 
     def select_persona(self, persona):

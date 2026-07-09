@@ -1,10 +1,13 @@
 """Authorization endpoint conformance (RFC 6749 §4.1, OIDC Core §3.1)."""
+import time
 from urllib.parse import urlsplit, parse_qs
 
 import jwt
+import pytest
 
 from helpers import (
-    CLIENT_ID, REDIRECT_URI, exchange_code, obtain_code, pkce_pair,
+    CLIENT_ID, PASSWORD, REDIRECT_URI, USERNAME, _csrf, exchange_code,
+    obtain_code, pkce_pair,
 )
 
 
@@ -75,6 +78,91 @@ def test_prompt_none_with_session_issues_a_code(client):
 def test_prompt_none_combined_with_other_values_is_invalid_request(client):
     resp = _authorize(client, prompt="none%20login")
     assert _error(resp.headers["Location"]) == "invalid_request"
+
+
+def _code_from(resp):
+    return parse_qs(urlsplit(resp.headers["Location"]).query)["code"][0]
+
+
+def test_prompt_none_does_not_sign_the_user_out(client):
+    """A prompt=none probe must never mutate the session it is probing.
+
+    An RP could otherwise sign a user out of the provider from a hidden iframe.
+    """
+    obtain_code(client)  # establishes the session
+    resp = _authorize(client, prompt="none", max_age="0")
+    assert _error(resp.headers["Location"]) == "login_required"
+
+    # The session survived: an ordinary request still completes silently.
+    assert "code" in parse_qs(urlsplit(_authorize(client).headers["Location"]).query)
+
+
+@pytest.mark.parametrize("prompt", ["login", "select_account"])
+def test_prompt_forces_reauthentication(client, prompt):
+    """select_account is aliased to login: this login page IS the account picker."""
+    obtain_code(client)  # establishes the session
+
+    resp = _authorize(client, prompt=prompt)
+    assert resp.status_code == 302
+    assert resp.headers["Location"].endswith("/user/login")
+
+
+@pytest.mark.parametrize("prompt", ["login", "select_account"])
+def test_reauthentication_completes_without_looping(client, prompt):
+    """The bounce back from /user/login carries no prompt, so it terminates."""
+    obtain_code(client)
+    _authorize(client, prompt=prompt)  # sends us to the login page
+
+    resp = client.post("/user/login", data={
+        "username": USERNAME, "password": PASSWORD, "csrf_token": _csrf(client),
+    })
+    # Straight back into /c2s/authorize, which now issues a code rather than
+    # bouncing to the login page again.
+    resp = client.get(resp.headers["Location"])
+    assert "code" in parse_qs(urlsplit(resp.headers["Location"]).query)
+
+
+def test_max_age_zero_forces_reauthentication(client):
+    obtain_code(client)
+    resp = _authorize(client, max_age="0")
+    assert resp.headers["Location"].endswith("/user/login")
+
+
+def test_generous_max_age_reuses_the_session(client):
+    obtain_code(client)
+    resp = _authorize(client, max_age="3600")
+    assert "code" in parse_qs(urlsplit(resp.headers["Location"]).query)
+
+
+def test_max_age_must_be_a_non_negative_integer(client):
+    assert _error(_authorize(client, max_age="soon").headers["Location"]) == "invalid_request"
+    assert _error(_authorize(client, max_age="-1").headers["Location"]) == "invalid_request"
+
+
+def test_forced_reauthentication_advances_auth_time(client):
+    """auth_time must reflect the new authentication, not the original one.
+
+    A max_age client reads auth_time to decide whether its demand was met, so a
+    reused Authorization row carrying a stale authentication_start would let the
+    provider silently ignore max_age.
+    """
+    obtain_code(client)
+    before = _auth_time(client, _code_from(_authorize(client)))
+
+    time.sleep(1.1)  # auth_time is integer seconds, so the clock must move
+    _authorize(client, prompt="login")
+    resp = client.post("/user/login", data={
+        "username": USERNAME, "password": PASSWORD, "csrf_token": _csrf(client),
+    })
+    resp = client.get(resp.headers["Location"])
+    after = _auth_time(client, _code_from(resp))
+
+    assert after > before
+
+
+def _auth_time(client, code):
+    body = exchange_code(client, code).get_json()
+    return jwt.decode(body["id_token"], options={"verify_signature": False})["auth_time"]
 
 
 def test_code_lifetime_is_ten_minutes_and_outlived_by_the_sso_session(app):

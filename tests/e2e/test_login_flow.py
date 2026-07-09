@@ -87,6 +87,42 @@ def test_sso_session_reuses_login_without_reprompting(rp):
     assert second["id_claims"]["jti"] != first["id_claims"]["jti"]
 
 
+@pytest.mark.parametrize("prompt", ["login", "select_account"])
+def test_prompt_reauthenticates_and_allows_switching_account(rp, prompt):
+    """OIDC Core §3.1.2.1. select_account is aliased to login here, and this
+    provider's login page lists every account, so both let the user switch."""
+    first = rp.login(persona="admin")
+    assert first["id_claims"]["sub"] == "admin"
+
+    # Despite an active session, the provider prompts again. select_persona
+    # waits for the login page, so reaching /session at all proves the bounce
+    # back from login terminates rather than looping.
+    rp.start_login(prompt=prompt)
+    rp.select_persona("it")
+
+    second = rp.state()
+    assert second["error"] is None, second
+    assert second["id_claims"]["sub"] == "it"
+
+
+def test_max_age_zero_forces_reauthentication(rp):
+    rp.login(persona="admin")
+    rp.start_login(max_age=0)
+    rp.select_persona("admin")
+    assert rp.state()["error"] is None
+
+
+def test_prompt_none_reuses_the_session_without_prompting(rp):
+    rp.login(persona="admin")
+
+    rp.start_login(prompt="none")
+    rp.page.wait_for_url(f"{rp.rp_url}/session")
+
+    state = rp.state()
+    assert state["error"] is None, state
+    assert state["id_claims"]["sub"] == "admin"
+
+
 def test_unknown_client_shows_an_error_without_redirecting(rp):
     """C1/M8: an unregistered client_id must not be redirected anywhere."""
     from urllib.parse import urlencode
