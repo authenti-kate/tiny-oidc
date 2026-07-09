@@ -1,4 +1,36 @@
-from flask import Response
+from urllib.parse import urlencode, urlsplit, urlunsplit
+from flask import Response, redirect
+
+
+def authorize_error_redirect(redirect_uri, error, description=None, state=None):
+    """Report an authorization error back to the RP (OIDC Core §3.1.2.6 /
+    RFC 6749 §4.1.2.1).
+
+    Only call this once redirect_uri (and client_id) have been validated —
+    errors in those MUST NOT be redirected. The error parameters are appended
+    to any existing query string on the redirect_uri.
+    """
+    params = {'error': error}
+    if description:
+        params['error_description'] = description
+    if state:
+        params['state'] = state
+    parts = urlsplit(redirect_uri)
+    query = parts.query + ('&' if parts.query else '') + urlencode(params)
+    return redirect(urlunsplit((parts.scheme, parts.netloc, parts.path, query, parts.fragment)))
+
+
+def authorize_success_redirect(redirect_uri, code, state=None):
+    """Redirect back to the RP with the authorization code (RFC 6749 §4.1.2),
+    appending to any existing query string rather than assuming there is none.
+    """
+    params = {'code': code}
+    if state:
+        params['state'] = state
+    parts = urlsplit(redirect_uri)
+    query = parts.query + ('&' if parts.query else '') + urlencode(params)
+    return redirect(urlunsplit((parts.scheme, parts.netloc, parts.path, query, parts.fragment)))
+
 
 def invalid_authorize_data(message):
     # Note, this does not strictly comply with

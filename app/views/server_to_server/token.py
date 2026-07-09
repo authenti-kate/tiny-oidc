@@ -1,4 +1,5 @@
 import os
+import uuid
 import jwt
 import hashlib
 import base64
@@ -12,7 +13,14 @@ from app.models.application import Application
 from app.models.authentication import Authentication
 from app.models.authorization import Authorization
 from app.models.refreshtoken import RefreshToken
-from app.views.server_to_server import invalid_token_data
+from app.crypto import ct_equal
+from app.urls import external_url
+from app.times import numeric_date
+from app.views.server_to_server import (
+    invalid_token_data,
+    token_error,
+    client_credentials,
+)
 
 @bp.route('/s2s/token', methods=['POST'])
 def token_endpoint():
@@ -39,6 +47,14 @@ def token_endpoint():
         if not refresh_token:
             return invalid_token_data('Invalid or expired refresh_token')
 
+        # Replay detection (RFC 9700 §2.2.2): a consumed token presented again
+        # indicates the token (or its successor) leaked; revoke the whole family.
+        if refresh_token.consumed:
+            debug('In /s2s/token - refresh token replay detected; revoking token family')
+            RefreshToken.query.filter_by(family_id=refresh_token.family_id).delete()
+            db.session.commit()
+            return token_error('invalid_grant', 'Refresh token has already been used', 400)
+
         refresh_token_expiry_time = refresh_token.expiry_time.replace(tzinfo=timezone.utc)
         if refresh_token_expiry_time < now_time:
             return invalid_token_data('Invalid or expired refresh_token')
@@ -51,6 +67,16 @@ def token_endpoint():
             # TODO: Check What to do if the application or user are no longer valid?
             return invalid_token_data('Invalid user or application')
 
+        # Authenticate the client on the refresh grant too (RFC 6749 §6 / §3.2.1);
+        # C2 covered the code exchange, but a refresh must not rotate a token
+        # family without proving which client is presenting it.
+        auth_client_id, auth_client_secret = client_credentials()
+        if not auth_client_id or not auth_client_secret:
+            return token_error('invalid_client', 'Client authentication required', 401)
+        if not ct_equal(auth_client_id, application.client_id) or \
+                not ct_equal(auth_client_secret, application.client_secret):
+            return token_error('invalid_client', 'Client authentication failed', 401)
+
         # Extend expiration for non-permanent applications
         if application.client_id != "client_id_12decaf34bad56" and application.expires_at is not None:
             application.expires_at = datetime.now(timezone.utc) + timedelta(days=7)
@@ -61,6 +87,11 @@ def token_endpoint():
         client_secret = application.client_secret
         scope = refresh_token.scope
         auth_time = refresh_token.auth_time
+        # Rotate: consume the presented token now; a replacement in the same
+        # family is issued below (RFC 9700 §2.2.2).
+        refresh_family = refresh_token.family_id
+        refresh_token.consumed = True
+        db.session.commit()
 
     elif grant_type == 'authorization_code':
         # Check inbound request contains required fields
@@ -79,9 +110,31 @@ def token_endpoint():
 
         authorization: Authorization = Authorization.query.filter(
             Authorization.code == code,
-            Authorization.session_valid >= now_time,
             Authorization.session_start <= now_time
         ).one_or_none()
+
+        # Authorization code replay detection (RFC 6749 §4.1.2 / §10.5,
+        # RFC 9700 §2.1.1): a code may be redeemed only once. If a code that has
+        # already been used is presented again, revoke every token previously
+        # issued from this authorization and reject the request.
+        if authorization is not None and authorization.code_used:
+            debug('In /s2s/token - authorization code reuse detected; revoking issued tokens')
+            Authentication.query.filter_by(
+                subject=authorization.user,
+                audience=authorization.application_client_id
+            ).delete()
+            RefreshToken.query.filter_by(
+                subject=authorization.user,
+                audience=authorization.application_client_id
+            ).delete()
+            db.session.commit()
+            return token_error('invalid_grant', 'Authorization code has already been used', 400)
+
+        # Reject an expired code (outside the session window). session_valid is
+        # stored naive (UTC); make it tz-aware before comparing with now_time.
+        if authorization is not None and \
+                authorization.session_valid.replace(tzinfo=timezone.utc) < now_time:
+            authorization = None
 
         if authorization:
             # PKCE validation (RFC 7636)
@@ -89,14 +142,16 @@ def token_endpoint():
             if authorization.code_challenge:
                 if not code_verifier:
                     return invalid_token_data('Missing code_verifier for PKCE')
-                if authorization.code_challenge_method == 'S256':
+                # RFC 7636 §4.3: a stored challenge with no method means "plain".
+                method = authorization.code_challenge_method or 'plain'
+                if method == 'S256':
                     computed = base64.urlsafe_b64encode(
                         hashlib.sha256(code_verifier.encode('ascii')).digest()
                     ).rstrip(b'=').decode('ascii')
-                    if computed != authorization.code_challenge:
+                    if not ct_equal(computed, authorization.code_challenge):
                         return invalid_token_data('Invalid code_verifier')
-                elif authorization.code_challenge_method == 'plain':
-                    if code_verifier != authorization.code_challenge:
+                elif method == 'plain':
+                    if not ct_equal(code_verifier, authorization.code_challenge):
                         return invalid_token_data('Invalid code_verifier')
                 else:
                     return invalid_token_data('Unsupported code_challenge_method')
@@ -114,17 +169,25 @@ def token_endpoint():
             if not application:
                 return invalid_token_data('Application not acceptable')
 
-            if client_id is not None and application.client_id != client_id:
-                invalid_context.append('client_id')
-            if client_secret is not None and application.client_secret != client_secret:
-                invalid_context.append('client_secret')
+            # Authenticate the client the code was issued to (RFC 6749 §3.2.1 /
+            # §4.1.3). The authorization code is bound to
+            # authorization.application_client_id, so a confidential client MUST
+            # present matching credentials via client_secret_basic or
+            # client_secret_post. Without this, anyone holding a code could
+            # redeem it. Comparisons are constant-time to avoid a timing oracle.
+            auth_client_id, auth_client_secret = client_credentials()
+            if not auth_client_id or not auth_client_secret:
+                debug('In /s2s/token - missing client authentication')
+                return token_error('invalid_client', 'Client authentication required', 401)
+            if not ct_equal(auth_client_id, application.client_id) or \
+                    not ct_equal(auth_client_secret, application.client_secret):
+                debug(f'In /s2s/token - client authentication failed for {auth_client_id}')
+                return token_error('invalid_client', 'Client authentication failed', 401)
 
-            # Error if not valid request
-            if len(invalid_context) > 0:
-                # TODO: What should be the correct response here?
-                debug(
-                    f'In /s2s/token - Invalid application context provided : {", ".join(invalid_context)}')
-                return invalid_token_data('Invalid application context provided')
+            # Consume the code now that the request is fully validated, so it
+            # cannot be redeemed a second time (single-use, RFC 6749 §4.1.2).
+            authorization.code_used = True
+            db.session.commit()
 
             # Extend expiration for non-permanent applications
             if application.client_id != "client_id_12decaf34bad56" and application.expires_at is not None:
@@ -134,9 +197,18 @@ def token_endpoint():
 
             scope = authorization.scope
             auth_time = authorization.authentication_start
+            # A fresh authorization starts a new refresh-token family.
+            refresh_family = uuid.uuid4().hex
         else:
             return invalid_token_data('Authorization expired')
-            
+
+    else:
+        # Any grant_type other than the two supported above (including a missing
+        # grant_type) must be rejected with unsupported_grant_type rather than
+        # falling through to an UnboundLocalError (RFC 6749 §5.2).
+        debug(f'In /s2s/token - unsupported grant_type: {grant_type}')
+        return token_error('unsupported_grant_type', f'Unsupported grant_type: {grant_type}', 400)
+
     # Key pair from https://chatgpt.com/share/676128c4-ffdc-8002-85b9-0fdea65978d1
     private_key = application.rsa_private_key
     key_id = application.key_id
@@ -172,15 +244,19 @@ def token_endpoint():
         debug(authentication.trace())
 
     access_content = {
-        "jti": hashlib.md5(str(f"{authentication.id}.{authentication.subject}.{authentication.authentication_time}").encode('utf-8')).hexdigest(),
+        "jti": uuid.uuid4().hex,
         "sub": authentication.subject,
         "aud": client_id,
-        "iss": request.host_url.removesuffix('/') + url_for('views.index'),
+        "iss": external_url('views.index'),
         # What time was this application's authentication session started?
-        "iat": authentication.authentication_time.timestamp(),
-        "exp": authentication.expiry_time.timestamp(),
+        "iat": numeric_date(authentication.authentication_time),
+        "exp": numeric_date(authentication.expiry_time),
         "scope": authentication.scope,
-        "kid": key_id
+        # Distinguishes an access token from an ID token so protected resources
+        # can reject the wrong token type (see UserInfo).
+        "token_use": "access"
+        # kid is carried in the JWS header (headers={"kid": ...}) per
+        # RFC 7515 §4.1.4, not in the claims.
     }
 
     debug(f'Access_content: {access_content}')
@@ -193,16 +269,16 @@ def token_endpoint():
     )
 
     id_content = {
-        "jti": hashlib.md5(str(f"{authentication.id}.{authentication.subject}.{authentication.authentication_time}").encode('utf-8')).hexdigest(),
+        "jti": uuid.uuid4().hex,
         "aud": client_id,
-        "iss": request.host_url.removesuffix('/') + url_for('views.index').removesuffix('/'),
+        "iss": external_url('views.index'),
         # Time stuff
         # What time did the user sign into the OIDC?
-        "auth_time": auth_time.timestamp(),
+        "auth_time": numeric_date(auth_time),
         # What time was this application's authentication session started?
-        "iat": now_time.timestamp(),
+        "iat": numeric_date(now_time),
         # When does this session expire?
-        "exp": (timedelta(seconds=expires_in_seconds)+now_time).timestamp(),
+        "exp": numeric_date(timedelta(seconds=expires_in_seconds)+now_time),
     }
 
     # Add user claims based on requested scopes
@@ -222,7 +298,7 @@ def token_endpoint():
     )
 
     reply = {
-        "jti": hashlib.md5(str(f"{authentication.id}.{authentication.subject}.{authentication.authentication_time}").encode('utf-8')).hexdigest(),
+        "jti": uuid.uuid4().hex,
         "id_token": id_token,
         "access_token": access_token,
         "token_type": "Bearer",
@@ -230,21 +306,23 @@ def token_endpoint():
     }
 
     if "offline_access" in scope.split():
-        refresh_token = hashlib.sha256(os.urandom(32)).hexdigest()
+        new_refresh_token = hashlib.sha256(os.urandom(32)).hexdigest()
 
-        # Store the refresh token in the database
+        # Store the (rotated) refresh token in the database, in the same family
+        # as the token that produced this request.
         refresh_entry = RefreshToken(
-            token=refresh_token,
+            token=new_refresh_token,
             subject=user.username,
             audience=client_id,
             scope=scope,
             auth_time=auth_time,
             issued_at=now_time,
-            expiry_time=(timedelta(days=30) + now_time)  # Refresh token valid for 30 days
+            expiry_time=(timedelta(days=30) + now_time),  # Refresh token valid for 30 days
+            family_id=refresh_family
         )
         db.session.add(refresh_entry)
         db.session.commit()
-        reply["refresh_token"] = refresh_token  # Add it to the response
+        reply["refresh_token"] = new_refresh_token  # Add it to the response
 
     debug(f"Request: '/s2s/token' Reply: {reply}")
     return jsonify(reply)

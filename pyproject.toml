@@ -1,3 +1,9 @@
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# Put the project root (for `app`/`config`) and tests/ (for `conftest` helpers)
+# on the import path.
+pythonpath = [".", "tests"]
+
 [project]
 name = "tiny-oidc"
 version = "0.1.0"
@@ -9,4 +15,9 @@ dependencies = [
     "flask>=3.1.0",
     "pyjwt>=2.10.1",
     "cryptography>=44.0.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
 ]

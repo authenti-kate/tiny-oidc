@@ -1,11 +1,12 @@
 from app.log import debug
 from app.views import bp
+from app.urls import external_url
 from flask import jsonify, url_for, request
 
 def host_url_for(key):
-    host_url = request.host_url.removesuffix('/')
-    fragment = url_for(key).removesuffix('/')
-    return host_url + fragment
+    # Derived from the configured issuer (OIDC_ISSUER) / trusted host rather
+    # than the raw request Host header — see app.urls.base_url.
+    return external_url(key)
 
 @bp.route('/.well-known/openid-configuration')
 def well_known():
@@ -21,10 +22,9 @@ def well_known():
             'authorization_endpoint': host_url_for('views.authorization_endpoint'),
             'token_endpoint': host_url_for('views.token_endpoint'),
             "jwks_uri": host_url_for('views.keys_endpoint'),
+            # Only the authorization code flow is implemented.
             "response_types_supported": [
-                "code",
-                "id_token",
-                "id_token token"
+                "code"
             ],
             "subject_types_supported": ["public"],
             "id_token_signing_alg_values_supported": [
@@ -38,7 +38,7 @@ def well_known():
                 "email",
                 "profile",
                 "groups",
-                "offline"
+                "offline_access"
             ],
             "claims_supported": [
                 "iss",
@@ -60,19 +60,22 @@ def well_known():
             #     "at_hash", "c_hash"
             ],
             # Optional Fields
-            "response_modes_supported": ["query", "fragment"],
+            "response_modes_supported": ["query"],
             "grant_types_supported": [
                 "authorization_code",
-                "implicit"
+                "refresh_token"
             ],
             "code_challenge_methods_supported": ["S256", "plain"],
+            # The token endpoint requires client authentication (see C2) and
+            # accepts credentials via HTTP Basic or the request body.
             "token_endpoint_auth_methods_supported": [
                 "client_secret_basic",
-                "none"
-                # "client_secret_post", "client_secret_jwt", "private_key_jwt",
+                "client_secret_post"
+                # "client_secret_jwt", "private_key_jwt" are not implemented.
             ],
             "end_session_endpoint": host_url_for('views.logout'),
-            "request_parameter_supported": True,
+            # Request objects (JAR, OIDC Core §6) are not implemented.
+            "request_parameter_supported": False,
             #   "request_object_signing_alg_values_supported": [
             #     "HS256", "HS384", "HS512", "RS256", "RS384", "RS512", "ES256", "ES384", "ES512"
             #   ],

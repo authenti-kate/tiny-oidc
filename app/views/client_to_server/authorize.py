@@ -1,13 +1,14 @@
 import re
+import uuid
 from datetime import datetime, timezone, timedelta
-from flask import url_for, redirect, request
+from flask import url_for, redirect, request, current_app
 from app.log import debug
 from app.views import bp
 from app.extensions import db
 from app.models.application import Application
 from app.models.authorization import Authorization
 from app.session import getSessionData, setSessionData, deleteSessionData, _mySession
-from app.views.client_to_server import invalid_authorize_data
+from app.views.client_to_server import invalid_authorize_data, authorize_error_redirect, authorize_success_redirect
 
 
 @bp.route('/c2s/authorize')
@@ -17,35 +18,13 @@ def authorization_endpoint():
         data[key] = request.args.get(key)
     debug(f'GET: /c2s/authorize args: {data}')
 
+    # Phase 1 — validate client_id and redirect_uri. Per OIDC Core §3.1.2.6 /
+    # RFC 6749 §4.1.2.1 these MUST NOT be reported by redirecting (that could
+    # deliver an error or code to an attacker-chosen URI); show an error page.
     invalid_context = []
-
-    # Check inbound request contains required fields
-    response_type = request.args.get(
-        'response_type', getSessionData('response_type'))
-    if not response_type:
-        invalid_context.append('response_type')
-
-    scope = request.args.get('scope', getSessionData('scope'))
-    if not scope:
-        invalid_context.append('scope')
-
-    state = request.args.get('state', getSessionData('state'))
-    if not state:
-        invalid_context.append('state')
-
-    nonce = request.args.get('nonce', getSessionData('nonce'))
-
-    # PKCE (RFC 7636) parameters
-    code_challenge = request.args.get('code_challenge', getSessionData('code_challenge'))
-    code_challenge_method = request.args.get('code_challenge_method', getSessionData('code_challenge_method'))
-
-    # These two are a bit more complex - but are still checking for required fields
-    redirect_uri = request.args.get(
-        'redirect_uri', getSessionData('redirect_uri'))
-    if not redirect_uri:
-        invalid_context.append('redirect_uri')
-
+    redirect_uri = request.args.get('redirect_uri', getSessionData('redirect_uri'))
     client_id = request.args.get('client_id', getSessionData('client_id'))
+    application = None
     if not client_id:
         invalid_context.append('client_id')
     else:
@@ -54,14 +33,49 @@ def authorization_endpoint():
         ).one_or_none()
         if not application:
             invalid_context.append('NON_EXISTANT:client_id')
-        elif not application.acceptable_redirect_uri == '*' and not re.match(application.acceptable_redirect_uri, redirect_uri):
-            invalid_context.append('NON_MATCHING:redirect_uri')
+    if not redirect_uri:
+        invalid_context.append('redirect_uri')
+    elif application is not None and not application.acceptable_redirect_uri == '*' \
+            and not re.match(application.acceptable_redirect_uri, redirect_uri):
+        invalid_context.append('NON_MATCHING:redirect_uri')
 
-    # Error if not valid request
     if len(invalid_context) > 0:
         debug(
             f'In /c2s/authorize - Invalid authorization context provided : {", ".join(invalid_context)}', str(_mySession().key))
         return invalid_authorize_data('Invalid authorization context provided')
+
+    # Phase 2 — redirect_uri and client_id are now trusted, so any remaining
+    # validation failure is reported to the RP as an OAuth error redirect.
+    response_type = request.args.get('response_type', getSessionData('response_type'))
+    scope = request.args.get('scope', getSessionData('scope'))
+    state = request.args.get('state', getSessionData('state'))
+    nonce = request.args.get('nonce', getSessionData('nonce'))
+    code_challenge = request.args.get('code_challenge', getSessionData('code_challenge'))
+    code_challenge_method = request.args.get('code_challenge_method', getSessionData('code_challenge_method'))
+
+    if not response_type:
+        return authorize_error_redirect(redirect_uri, 'invalid_request', 'response_type is required', state)
+    # Only the authorization code flow is implemented (RFC 6749 §3.1.1).
+    if response_type != 'code':
+        return authorize_error_redirect(redirect_uri, 'unsupported_response_type', f'Unsupported response_type: {response_type}', state)
+    if not scope:
+        return authorize_error_redirect(redirect_uri, 'invalid_request', 'scope is required', state)
+    if 'openid' not in scope.split():
+        # This is an OpenID Provider; the request MUST include openid
+        # (OIDC Core §3.1.2.1).
+        return authorize_error_redirect(redirect_uri, 'invalid_scope', 'openid scope is required', state)
+    # state is RECOMMENDED, not REQUIRED (RFC 6749 §4.1.1); it is echoed back
+    # only when the client supplied it.
+
+    # PKCE (RFC 7636). Default a missing method to "plain" (§4.3); only S256
+    # (RECOMMENDED) and plain are supported.
+    if code_challenge:
+        if not code_challenge_method:
+            code_challenge_method = 'plain'
+        elif code_challenge_method not in ('S256', 'plain'):
+            return authorize_error_redirect(redirect_uri, 'invalid_request', 'Unsupported code_challenge_method', state)
+    elif current_app.config.get('PKCE_REQUIRED'):
+        return authorize_error_redirect(redirect_uri, 'invalid_request', 'PKCE code_challenge is required', state)
 
     # Check user session
     #
@@ -137,25 +151,26 @@ def authorization_endpoint():
         db.session.add(authorization)
         db.session.commit()
     else:
+        # Reuse the SSO session but mint a FRESH single-use code for this
+        # authorization request. Each /authorize must yield a code that can be
+        # redeemed exactly once (RFC 6749 §4.1.2); issuing a new code also
+        # invalidates any prior unredeemed code for this session.
+        authorization.code = str(uuid.uuid4())
+        authorization.code_used = False
         # Update the scope, nonce and PKCE params for the existing authorization to match the current request
-        updated = False
         if scope and authorization.scope != scope:
             authorization.scope = scope
-            updated = True
         if nonce and authorization.nonce != nonce:
             authorization.nonce = nonce
-            updated = True
         if code_challenge and authorization.code_challenge != code_challenge:
             authorization.code_challenge = code_challenge
             authorization.code_challenge_method = code_challenge_method
-            updated = True
-        if updated:
-            db.session.commit()
-            auth_state = 'Updated '
+        db.session.commit()
+        auth_state = 'Updated '
     debug(auth_state + authorization.trace())
 
     # If we don't authenticate the user, we should, *strictly speaking*
     # return an error to the RP. We don't do this!
     # See this link for details of how it *should* be implemented!
     # https://openid.net/specs/openid-connect-core-1_0.html#AuthError
-    return redirect(f'{redirect_uri}?code={authorization.code}&state={state}')
+    return authorize_success_redirect(redirect_uri, authorization.code, state)

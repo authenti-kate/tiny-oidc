@@ -97,10 +97,11 @@ class User(db.Model):
         return f'User: {data}'
     
     def oidc_claim(self, target_scopes):
-        data = {}
-        scopes = target_scopes.split(" ")
-        if 'openid' in scopes or 'profile' in scopes:
-            data["sub"] = self.username
+        scopes = (target_scopes or "").split(" ")
+        # sub is REQUIRED in every ID token and UserInfo response, regardless of
+        # which scopes were granted (OIDC Core §2 and §5.3.2).
+        data = {"sub": self.username}
+        if 'profile' in scopes:
             data["name"] = self.display_name
             data["given_name"] = self.first_name
             data["family_name"] = self.last_name

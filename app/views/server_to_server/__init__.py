@@ -1,5 +1,60 @@
-from flask import Response
+from flask import Response, jsonify, request
 from app.log import debug
+
+
+def client_credentials():
+    """Extract client credentials per RFC 6749 §2.3.1.
+
+    Supports client_secret_basic (HTTP Basic Authorization header) and
+    client_secret_post (request body). Returns (client_id, client_secret),
+    either of which may be None when absent.
+    """
+    auth = request.authorization
+    if auth is not None and (auth.type or '').lower() == 'basic':
+        return auth.username, auth.password
+    return request.form.get('client_id', None), request.form.get('client_secret', None)
+
+
+def token_error(error, description=None, status=400):
+    """RFC 6749 §5.2 error response: JSON body {"error", "error_description"}.
+
+    Token-endpoint responses MUST set Cache-Control: no-store / Pragma: no-cache
+    (§5.1). A 401 additionally carries a WWW-Authenticate challenge (§5.2).
+    """
+    body = {"error": error}
+    if description:
+        body["error_description"] = description
+    resp = jsonify(body)
+    resp.status_code = status
+    resp.headers['Cache-Control'] = 'no-store'
+    resp.headers['Pragma'] = 'no-cache'
+    if status == 401:
+        resp.headers['WWW-Authenticate'] = 'Basic'
+    return resp
+
+
+def bearer_error(error=None, description=None, status=401):
+    """RFC 6750 §3 protected-resource error.
+
+    Returns an HTTP 401/403 carrying a WWW-Authenticate: Bearer challenge. When
+    no credentials were supplied at all, `error` is None and a bare challenge is
+    emitted with no error code (RFC 6750 §3).
+    """
+    if error is None:
+        resp = Response(status=status)
+        resp.headers['WWW-Authenticate'] = 'Bearer'
+        return resp
+    challenge = f'Bearer error="{error}"'
+    if description:
+        challenge += f', error_description="{description}"'
+    body = {"error": error}
+    if description:
+        body["error_description"] = description
+    resp = jsonify(body)
+    resp.status_code = status
+    resp.headers['WWW-Authenticate'] = challenge
+    return resp
+
 
 def invalid_token_data(message):
     debug(f"400: {message}")
