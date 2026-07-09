@@ -7,12 +7,13 @@ from app.models.application import Application
 from app.urls import external_url
 from app.views.server_to_server import bearer_error
 
-@bp.route('/s2s/userinfo')
+# OIDC Core §5.3.1: the UserInfo Endpoint MUST support both GET and POST.
+@bp.route('/s2s/userinfo', methods=['GET', 'POST'])
 def userinfo_endpoint():
     # RFC 6750 §2.1: the access token is presented as a Bearer credential.
     auth = request.authorization
     bearer = auth.token if (auth is not None and (auth.type or '').lower() == 'bearer' and auth.token) else None
-    debug(f'GET: /s2s/userinfo bearer present: {bool(bearer)} args: {dict(request.args)}')
+    debug(f'{request.method}: /s2s/userinfo bearer present: {bool(bearer)} args: {dict(request.args)}')
 
     # No credentials: 401 with a bare Bearer challenge and no error code
     # (RFC 6750 §3).

@@ -33,6 +33,16 @@ def test_userinfo_returns_sub_and_scoped_claims(client):
     assert "name" in claims and "groups" in claims
 
 
+def test_userinfo_supports_post(client):
+    """OIDC Core §5.3.1: the endpoint MUST support both GET and POST."""
+    tokens = _tokens(client)
+    headers = {"Authorization": f"Bearer {tokens['access_token']}"}
+    get_claims = client.get("/s2s/userinfo", headers=headers).get_json()
+    post = client.post("/s2s/userinfo", headers=headers)
+    assert post.status_code == 200
+    assert post.get_json() == get_claims
+
+
 def test_userinfo_rejects_id_token(client):
     tokens = _tokens(client)
     resp = client.get("/s2s/userinfo",
