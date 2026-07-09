@@ -1,7 +1,11 @@
 """Authorization endpoint conformance (RFC 6749 §4.1, OIDC Core §3.1)."""
 from urllib.parse import urlsplit, parse_qs
 
-from helpers import CLIENT_ID, REDIRECT_URI
+import jwt
+
+from helpers import (
+    CLIENT_ID, REDIRECT_URI, exchange_code, obtain_code, pkce_pair,
+)
 
 
 def _authorize(client, **overrides):
@@ -46,3 +50,28 @@ def test_valid_request_without_state_proceeds_to_login(client):
     resp = _authorize(client, state=None)
     assert resp.status_code == 302
     assert resp.headers["Location"].endswith("/user/login")
+
+
+def test_reused_sso_session_drops_previous_pkce_and_nonce(client):
+    """code_challenge and nonce bind to one authorization request, not the SSO
+    session (RFC 7636 §4.4, OIDC Core §3.1.3.6).
+
+    A second request that omits them must not inherit the first request's
+    values, otherwise the fresh code is bound to a verifier this client never
+    chose and the ID token carries a stale nonce.
+    """
+    _, challenge = pkce_pair()
+    obtain_code(client, challenge=challenge)  # first request: PKCE + nonce=n1
+
+    # Second request on the same session: no code_challenge, no nonce.
+    resp = _authorize(client)
+    code = parse_qs(urlsplit(resp.headers["Location"]).query)["code"][0]
+
+    # Redeemable without a verifier, because no challenge was requested.
+    token = exchange_code(client, code)
+    assert token.status_code == 200, token.get_data(as_text=True)[:200]
+
+    claims = jwt.decode(
+        token.get_json()["id_token"], options={"verify_signature": False}
+    )
+    assert "nonce" not in claims

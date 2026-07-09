@@ -157,14 +157,19 @@ def authorization_endpoint():
         # invalidates any prior unredeemed code for this session.
         authorization.code = str(uuid.uuid4())
         authorization.code_used = False
-        # Update the scope, nonce and PKCE params for the existing authorization to match the current request
-        if scope and authorization.scope != scope:
-            authorization.scope = scope
-        if nonce and authorization.nonce != nonce:
-            authorization.nonce = nonce
-        if code_challenge and authorization.code_challenge != code_challenge:
-            authorization.code_challenge = code_challenge
-            authorization.code_challenge_method = code_challenge_method
+        # Replace the per-request parameters with THIS request's values, even
+        # when absent. These bind to a single authorization request, not to the
+        # SSO session: the code_challenge must bind the code to this request's
+        # verifier (RFC 7636 §4.4) and the nonce claim must be the value sent in
+        # this request (OIDC Core §3.1.3.6). Only overwriting them when the new
+        # request supplies a value leaves a previous request's challenge and
+        # nonce attached to a freshly minted code — which makes a non-PKCE
+        # request after a PKCE one issue a code that cannot be redeemed, and
+        # puts a stale nonce in the ID token.
+        authorization.scope = scope
+        authorization.nonce = nonce
+        authorization.code_challenge = code_challenge
+        authorization.code_challenge_method = code_challenge_method
         db.session.commit()
         auth_state = 'Updated '
     debug(auth_state + authorization.trace())
