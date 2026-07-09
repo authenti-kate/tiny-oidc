@@ -88,6 +88,29 @@ def test_refresh_requires_client_auth(client):
     assert _refresh(client, rt, secret=None).status_code == 401
 
 
+def test_expired_authorization_code_is_rejected(app):
+    """RFC 6749 §4.1.2: a code that has outlived its lifetime is not redeemable."""
+    from datetime import datetime, timedelta, timezone
+
+    from app.extensions import db
+    from app.models.authorization import Authorization
+
+    client = app.test_client()
+    verifier, challenge = pkce_pair()
+    code, _ = obtain_code(client, challenge=challenge)
+
+    with app.app_context():
+        authorization = Authorization.query.filter_by(code=code).one()
+        authorization.code_expires_at = (
+            datetime.now(timezone.utc) - timedelta(seconds=1)
+        )
+        db.session.commit()
+
+    resp = exchange_code(client, code, verifier=verifier)
+    assert resp.status_code == 400
+    assert resp.get_json()["error"] == "invalid_grant"
+
+
 def test_error_responses_are_json_with_an_error_code(client):
     """RFC 6749 §5.2: errors are a JSON object carrying an `error` code."""
     cases = [

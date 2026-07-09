@@ -77,6 +77,53 @@ def test_prompt_none_combined_with_other_values_is_invalid_request(client):
     assert _error(resp.headers["Location"]) == "invalid_request"
 
 
+def test_code_lifetime_is_ten_minutes_and_outlived_by_the_sso_session(app):
+    """RFC 6749 §4.1.2 RECOMMENDS a 10-minute maximum code lifetime.
+
+    The SSO session deliberately outlives it: a code must expire quickly, while
+    a session exists so it can satisfy more than one authorization request.
+    """
+    from datetime import datetime, timezone
+
+    from app.models.authorization import Authorization
+
+    client = app.test_client()
+    obtain_code(client)
+
+    with app.app_context():
+        authorization = Authorization.query.one()
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
+        code_ttl = (authorization.code_expires_at - now).total_seconds()
+        session_ttl = (authorization.session_valid - now).total_seconds()
+
+    assert 590 < code_ttl <= 600
+    assert session_ttl > code_ttl
+
+
+def test_reissued_code_gets_a_fresh_lifetime(app):
+    """A code minted on a partly-spent SSO session still gets its full window."""
+    from datetime import datetime, timedelta, timezone
+
+    from app.extensions import db
+    from app.models.authorization import Authorization
+
+    client = app.test_client()
+    obtain_code(client)
+
+    # Age the SSO session and the outstanding code by five minutes.
+    with app.app_context():
+        authorization = Authorization.query.one()
+        authorization.code_expires_at -= timedelta(minutes=5)
+        db.session.commit()
+
+    _authorize(client)  # mints a new code on the same session
+
+    with app.app_context():
+        authorization = Authorization.query.one()
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
+        assert (authorization.code_expires_at - now).total_seconds() > 590
+
+
 def test_reused_sso_session_drops_previous_pkce_and_nonce(client):
     """code_challenge and nonce bind to one authorization request, not the SSO
     session (RFC 7636 §4.4, OIDC Core §3.1.3.6).

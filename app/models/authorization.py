@@ -15,6 +15,12 @@ class Authorization(db.Model):
     # code has been redeemed at the token endpoint; a second redemption is a
     # replay and must be rejected.
     code_used = db.Column(sa.Boolean, default=False)
+    # When the current code stops being redeemable. Tracked separately from
+    # session_valid: §4.1.2 wants a short-lived code (10 minutes maximum,
+    # RECOMMENDED), whereas session_valid governs how long this SSO session may
+    # be reused to satisfy further authorization requests. Refreshed whenever a
+    # new code is minted.
+    code_expires_at = db.Column(sa.DateTime)
     scope = db.Column(sa.String(255))
     nonce = db.Column(sa.String(255))
     code_challenge = db.Column(sa.String(255))
@@ -36,6 +42,7 @@ class Authorization(db.Model):
         session_start = None,
         session_valid = None,
         code = None,
+        code_expires_at = None,
         scope = None,
         nonce = None,
         code_challenge = None,
@@ -62,6 +69,9 @@ class Authorization(db.Model):
             self.code = str(uuid.uuid4())
         self.code_used = False
 
+        if code_expires_at is not None:
+            self.code_expires_at = code_expires_at
+
         if scope is not None:
             self.scope = scope
 
@@ -83,6 +93,7 @@ class Authorization(db.Model):
             'session_valid': self.session_valid.strftime("%Y-%m-%d %H:%M:%S"),
             'code': self.code,
             'code_used': self.code_used,
+            'code_expires_at': self.code_expires_at,
             'scope': self.scope,
             'nonce': self.nonce,
             'code_challenge': self.code_challenge,

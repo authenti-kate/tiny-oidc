@@ -146,16 +146,20 @@ def authorization_endpoint():
         Authorization.session_valid >= datetime.now(timezone.utc),
         Authorization.session_start <= datetime.now(timezone.utc)
     ).one_or_none()
+    now_utc = datetime.now(timezone.utc)
+    code_lifetime = timedelta(seconds=current_app.config['AUTHORIZATION_CODE_LIFETIME'])
+    session_lifetime = timedelta(seconds=current_app.config['SSO_SESSION_LIFETIME'])
+
     if not authorization:
         auth_state = 'New '
-        now_utc = datetime.now(timezone.utc)
         authorization: Authorization = Authorization(
             user=user_key,
             application_client_id=application.client_id,
             scope=scope,
             authentication_start=datetime.fromtimestamp(getSessionData('sign_in'), timezone.utc),
             session_start=now_utc,
-            session_valid=now_utc + timedelta(minutes=15),
+            session_valid=now_utc + session_lifetime,
+            code_expires_at=now_utc + code_lifetime,
             nonce=nonce,
             code_challenge=code_challenge,
             code_challenge_method=code_challenge_method
@@ -169,6 +173,9 @@ def authorization_endpoint():
         # invalidates any prior unredeemed code for this session.
         authorization.code = str(uuid.uuid4())
         authorization.code_used = False
+        # The new code gets its own full lifetime, independent of how much of
+        # the SSO session window remains.
+        authorization.code_expires_at = now_utc + code_lifetime
         # Replace the per-request parameters with THIS request's values, even
         # when absent. These bind to a single authorization request, not to the
         # SSO session: the code_challenge must bind the code to this request's

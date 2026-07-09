@@ -133,10 +133,14 @@ def token_endpoint():
             db.session.commit()
             return token_error('invalid_grant', 'Authorization code has already been used', 400)
 
-        # Reject an expired code (outside the session window). session_valid is
-        # stored naive (UTC); make it tz-aware before comparing with now_time.
-        if authorization is not None and \
-                authorization.session_valid.replace(tzinfo=timezone.utc) < now_time:
+        # Reject an expired code (RFC 6749 §4.1.2). The code has its own short
+        # lifetime, distinct from how long the SSO session behind it may be
+        # reused. code_expires_at is stored naive (UTC); make it tz-aware before
+        # comparing with now_time. A row with no expiry predates that column and
+        # cannot be trusted, so treat it as expired.
+        if authorization is not None and (
+                authorization.code_expires_at is None
+                or authorization.code_expires_at.replace(tzinfo=timezone.utc) < now_time):
             authorization = None
 
         if authorization:

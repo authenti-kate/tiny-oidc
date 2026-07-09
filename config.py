@@ -33,6 +33,15 @@ class Config:
     # Number of chained reverse proxies to trust for X-Forwarded-* headers.
     PROXY_COUNT = int(os.environ.get('PROXY_COUNT', '1'))
 
+    # Authorization code lifetime, in seconds. RFC 6749 §4.1.2 requires codes to
+    # be short-lived and RECOMMENDS a maximum lifetime of 10 minutes.
+    AUTHORIZATION_CODE_LIFETIME = int(os.environ.get('AUTHORIZATION_CODE_LIFETIME', '600'))
+    # How long a signed-in browser session may satisfy a new authorization
+    # request without re-authenticating (SSO). Deliberately separate from the
+    # code lifetime above: a code must expire quickly, whereas an SSO session
+    # exists precisely so that it outlives a single authorization request.
+    SSO_SESSION_LIFETIME = int(os.environ.get('SSO_SESSION_LIFETIME', '900'))
+
     # Require PKCE (a code_challenge) on every authorization request. Defaults
     # off so simple test flows still work; RFC 9700 §2.1.1 recommends enabling
     # it (with S256) in production. Only S256 and plain are accepted regardless;
