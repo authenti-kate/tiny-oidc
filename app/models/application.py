@@ -1,6 +1,34 @@
 import base64
+import hashlib
+import json
 from datetime import datetime, timezone, timedelta
 from app.extensions import db
+
+def backfill_key_ids():
+    """Repair `key_id` on rows written before the thumbprint change.
+
+    There is no migration framework here and `db.create_all()` never rewrites
+    existing data, so without this an upgraded deployment keeps publishing the
+    old PEM-derived kid — which no client can use, and which the token,
+    introspection and userinfo endpoints all look up by.
+
+    Idempotent: the kid is derived from the stored public key, so recomputing
+    it for every row leaves already-correct values unchanged. Expired
+    applications are repaired too — /s2s/keys skips them, but /s2s/introspect
+    and /s2s/userinfo still resolve tokens issued before they expired.
+    """
+    repaired = 0
+    for application in Application.query.all():
+        if not application.rsa_public_key:
+            continue
+        expected = Application.compute_key_id(application.rsa_public_key)
+        if application.key_id != expected:
+            application.key_id = expected
+            repaired += 1
+    if repaired:
+        db.session.commit()
+    return repaired
+
 
 def initApplication():
     all_apps = Application.query.all()
@@ -109,7 +137,48 @@ class Application(db.Model):
             format=serialization.PublicFormat.SubjectPublicKeyInfo
         )
 
-        self.key_id = base64.b64encode(str(self.rsa_public_key).encode('utf-8')).hex()
+        self.key_id = self.compute_key_id(self.rsa_public_key)
+
+    @staticmethod
+    def compute_key_id(public_key_pem):
+        """The RFC 7638 JWK thumbprint of an RSA public key, used as `kid`.
+
+        RFC 7638 §3: SHA-256 over a JSON object containing only the members
+        required for the key type ("e", "kty", "n" for RSA), with keys in
+        lexicographic order and no whitespace, base64url-encoded without
+        padding. A client can recompute this from the JWK it was served, which
+        is the property that makes a thumbprint a useful key identifier.
+
+        This previously stored the entire PEM public key instead, via
+        `base64.b64encode(str(pem).encode()).hex()`. Since the PEM is `bytes`,
+        `str()` yielded its repr, baking a literal `b'` prefix and `\\n`
+        escapes into the value; the result was a 1240-character kid and a
+        ~1702-byte JOSE header. Real clients reject that outright — joserfc,
+        the JWS backend behind Authlib, caps headers at 512 bytes because the
+        header is parsed before any signature has been verified.
+        """
+        from cryptography.hazmat.primitives import serialization
+        from cryptography.hazmat.primitives.asymmetric import rsa
+
+        if isinstance(public_key_pem, str):
+            public_key_pem = public_key_pem.encode('utf-8')
+        public_key = serialization.load_pem_public_key(public_key_pem)
+        if not isinstance(public_key, rsa.RSAPublicKey):
+            raise ValueError('Only RSA public keys are supported')
+
+        numbers = public_key.public_numbers()
+
+        def b64u(value):
+            raw = value.to_bytes((value.bit_length() + 7) // 8, byteorder='big')
+            return base64.urlsafe_b64encode(raw).rstrip(b'=').decode('utf-8')
+
+        canonical = json.dumps(
+            {'e': b64u(numbers.e), 'kty': 'RSA', 'n': b64u(numbers.n)},
+            separators=(',', ':'),
+            sort_keys=True
+        ).encode('utf-8')
+        digest = hashlib.sha256(canonical).digest()
+        return base64.urlsafe_b64encode(digest).rstrip(b'=').decode('utf-8')
 
     def trace(self):
         data = {
