@@ -51,7 +51,7 @@ def index():
             <ul>
                 <li><strong>Auto-generated applications expire after 7 days</strong></li>
                 <li>Each time you use the credentials, the expiration deadline is extended to 7 days from when you used the credential</li>
-                <li>The default application <span class="code">client_id_12decaf34bad56</span> never expires</li>
+                <li>The default application <span class="code">client_id_12decaf34bad56</span> with the secret <span class="code">Super-+Secret_=Key0123456789</span> never expires</li>
                 <li>The special client_id <span class="code">invalid_client_id</span> will always fail authentication</li>
             </ul>
         </div>"""
